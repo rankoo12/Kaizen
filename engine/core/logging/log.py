@@ -1,0 +1,9 @@
+from typing import Protocol
+
+
+class ILog(Protocol):
+    """Structured logging interface (json)."""
+
+    def info(self, msg: str, **kv): ...
+    def warn(self, msg: str, **kv): ...
+    def error(self, msg: str, **kv): ...

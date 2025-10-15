@@ -1,0 +1,34 @@
+version: "3.9"
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: kaizen-ollama
+    volumes: ["ollama_models:/root/.ollama"]
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "ollama --version"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  engine:
+    build: ./engine
+    container_name: kaizen-engine
+    depends_on: [ollama]
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - KAIZEN_DB=/data/kaizen.sqlite
+    volumes: ["engine_artifacts:/data"]
+    command: ["python", "-m", "engine.api.cli"]
+
+  portal-backend:
+    build: ./portal/backend
+    container_name: kaizen-portal-backend
+    depends_on: [engine]
+    environment:
+      - ENGINE_URL=http://engine:8080
+    ports: ["8088:8080"]
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8080"]
+
+volumes:
+  ollama_models:
+  engine_artifacts:

@@ -1,0 +1,13 @@
+[project]
+name = "kaizen-engine"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7.0",
+  "dependency-injector>=4.41.0",
+  "typing-extensions>=4.12.2",
+  "jsonschema>=4.23.0",
+]
+
+[tool.ruff]
+target-version = "py311"

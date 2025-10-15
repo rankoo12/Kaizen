@@ -1,0 +1,22 @@
+pipeline {
+  agent any
+  stages {
+    stage('Prepare'){ steps{ checkout scm } }
+    stage('Lint & Typecheck'){ steps{ sh 'make lint' } }
+    stage('Unit Tests'){ steps{ sh 'make test' } }
+    stage('E2E (compose)'){ steps{ sh 'make e2e' } }
+    stage('Security'){
+      steps{
+        sh 'trivy fs --exit-code 1 . || true'
+        sh 'gitleaks detect --no-git -v || true'
+      }
+    }
+    stage('Build Images'){
+      steps{
+        sh 'docker build -t kaizen/engine:$GIT_COMMIT engine'
+        sh 'docker build -t kaizen/portal-backend:$GIT_COMMIT portal/backend'
+      }
+    }
+  }
+  options { timestamps() }
+}
