@@ -1,9 +1,15 @@
 from dependency_injector import containers, providers
 from .settings import Settings
+from engine.core.resolving.element_resolver import (
+    ElementResolver,
+)  # uses your existing file
 
 
 class Container(containers.DeclarativeContainer):
     wiring_config = containers.WiringConfiguration(packages=["engine"])
     settings = providers.Singleton(Settings)
-    # providers for interfaces (bound later when implementations land)
-    # e.g., text_llm = providers.Factory(OllamaTextLLM, host=settings().OLLAMA_HOST, model=settings().LLM_TEXT_MODEL)
+    element_resolver = providers.Factory(ElementResolver)
+
+
+def build_container() -> Container:
+    return Container()
