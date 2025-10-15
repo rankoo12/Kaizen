@@ -1,4 +1,5 @@
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import List, Optional, Dict, Any
+from typing_extensions import TypedDict
 
 
 class Candidate(TypedDict, total=False):

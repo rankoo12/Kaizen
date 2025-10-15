@@ -1,8 +1,6 @@
 from dependency_injector import containers, providers
-from .settings import Settings
-from engine.core.resolving.element_resolver import (
-    ElementResolver,
-)  # uses your existing file
+from engine.core.config.settings import Settings
+from engine.core.resolving.element_resolver import ElementResolver
 
 
 class Container(containers.DeclarativeContainer):
