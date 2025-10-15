@@ -1,31 +1,46 @@
 from fastapi import APIRouter, FastAPI, HTTPException
 from typing import Any, Dict
 from pydantic import TypeAdapter
+import fastjsonschema
+import json
+from pathlib import Path
 
 from engine.core.types.dtos import TargetQuery, LocatorCandidates
 
 router = APIRouter(prefix="/api")
 
-# Adapters for runtime validation
+# --- runtime validators ---
 TA_TargetQuery = TypeAdapter(TargetQuery)
 TA_LocatorCandidates = TypeAdapter(LocatorCandidates)
+
+# --- load JSON Schema once at import ---
+schema_path = (
+    Path(__file__).resolve().parent.parent / "schemas" / "resolve_request.schema.json"
+)
+with open(schema_path, "r", encoding="utf-8") as f:
+    _validate = fastjsonschema.compile(json.load(f))
 
 
 def register_resolve_routes(app: FastAPI, resolver) -> None:
     @router.post("/resolve")
     async def resolve_endpoint(body: Dict[str, Any]):
-        snapshot = body.get("snapshot")
-        query_raw = body.get("query")
-        if snapshot is None or query_raw is None:
-            raise HTTPException(status_code=400, detail="Missing 'snapshot' or 'query'")
+        # --- 1. Schema validation (rejects malformed JSON immediately) ---
+        try:
+            _validate(body)
+        except fastjsonschema.JsonSchemaException as e:
+            raise HTTPException(
+                status_code=422, detail=f"Schema validation failed: {e.message}"
+            )
 
-        # Validate 'query' against TypedDict
+        # --- 2. TypedDict validation for query (extra safety) ---
+        snapshot = body["snapshot"]
+        query_raw = body["query"]
         try:
             query = TA_TargetQuery.validate_python(query_raw)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid TargetQuery: {e!s}")
 
-        # TODO: when PageSnapshot TypedDict exists, validate snapshot similarly
+        # --- 3. Execute resolver ---
         try:
             result = resolver.resolve(query, snapshot)
         except Exception as e:
@@ -34,7 +49,7 @@ def register_resolve_routes(app: FastAPI, resolver) -> None:
         if not result:
             raise HTTPException(status_code=404, detail="No candidates")
 
-        # Validate response shape
+        # --- 4. Validate response shape ---
         try:
             return TA_LocatorCandidates.validate_python(result)
         except Exception as e:

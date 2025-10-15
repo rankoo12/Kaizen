@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResolveRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["snapshot", "query"],
+  "properties": {
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "html_path": { "type": "string" },
+        "candidates": { "type": "array" },
+        "styles_index_path": { "type": ["string", "null"] },
+        "screenshot_path": { "type": ["string", "null"] },
+        "frames": { "type": "array" }
+      },
+      "required": ["html_path", "candidates"]
+    },
+    "query": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string" },
+        "hints": {
+          "type": "object",
+          "properties": {
+            "role": { "type": "string" },
+            "color": { "type": "string" },
+            "near": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "scope": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}
