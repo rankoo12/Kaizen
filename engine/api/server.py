@@ -4,7 +4,10 @@ from .routes.resolve import register_resolve_routes
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Kaizen Engine", docs_url="/api/docs", openapi_url="/api/openapi.json"
+        title="Kaizen Engine",
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+        ax_request_size=5 * 1024 * 1024,
     )
 
     # DI: prefer container if available; fall back to direct import
