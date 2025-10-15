@@ -1,0 +1,7 @@
+{
+  "id": "demo-1",
+  "steps": [
+    {"text": "Find login button"},
+    {"text": "Click submit"}
+  ]
+}

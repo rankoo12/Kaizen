@@ -3,6 +3,8 @@ from engine.core.config.settings import Settings
 from engine.core.resolving.element_resolver import ElementResolver
 from engine.core.orchestrator.snapshot_runner import SnapshotRunner
 from engine.core.orchestrator.types import IPlanner, IResolveSnapshot
+from engine.core.browser.playwright_driver import PlaywrightBrowser
+from engine.core.orchestrator.live_runner import LiveRunner
 
 
 # Temporary stub for planner until integrated with real parsing logic
@@ -54,6 +56,17 @@ class Container(containers.DeclarativeContainer):
 
     # TODO: replace with actual storage when implemented
     storage = providers.Singleton(InMemoryStorage)
+
+    # Playwright browser adapter (for Live Mode)
+    playwright_browser = providers.Singleton(PlaywrightBrowser)
+
+    live_runner = providers.Factory(
+        LiveRunner,
+        planner=planner,
+        browser=playwright_browser,
+        storage=storage,
+        log=logger,
+    )
 
     snapshot_runner = providers.Factory(
         SnapshotRunner,
