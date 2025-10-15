@@ -1,4 +1,5 @@
-from typing import List, Optional, TypedDict, Literal, Dict, Any
+from typing import List, Optional, Literal, Dict, Any
+from typing_extensions import TypedDict
 
 
 class StepSpec(TypedDict, total=False):
