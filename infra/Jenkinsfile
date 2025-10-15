@@ -2,6 +2,11 @@ pipeline {
   agent any
   stages {
     stage('Prepare'){ steps{ checkout scm } }
+
+    stage('Playwright setup'){
+      steps { sh 'python -m playwright install --with-deps chromium' }
+    }
+
     stage('Lint & Typecheck'){ steps{ sh 'make lint' } }
     stage('Unit Tests'){ steps{ sh 'make test' } }
     stage('E2E (compose)'){ steps{ sh 'make e2e' } }

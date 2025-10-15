@@ -26,3 +26,6 @@ sbom:
 
 clean:
 \trm -rf .pytest_cache **/__pycache__ artifacts/ || true
+
+playwright-install:
+	python -m playwright install --with-deps chromium
