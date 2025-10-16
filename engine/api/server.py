@@ -1,39 +1,23 @@
 from fastapi import FastAPI
-from .routes.resolve import register_resolve_routes
+from engine.api.routes.resolve import register_resolve_routes
+from engine.core.config.container import Container
 
 
-def create_app() -> FastAPI:
+def create_app(resolver=None) -> FastAPI:
     app = FastAPI(
-        title="Kaizen Engine",
+        title="Kaizen Engine API",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
-        ax_request_size=5 * 1024 * 1024,
+        max_request_size=10 * 1024 * 1024,
     )
-
-    # DI: prefer container if available; fall back to direct import
-    resolver = None
-    try:
-        from engine.core.config.container import (
-            build_container,
-        )  # existing module in your tree
-
-        container = build_container()
-        resolver = container.resolve(
-            "element_resolver"
-        )  # expect your container to expose this key
-    except Exception:
-        # Minimal fallback (not validated): try direct ctor
-        from engine.core.resolving.element_resolver import ElementResolver
-
-        resolver = (
-            ElementResolver()
-        )  # if your resolver needs deps, adjust container instead
+    if resolver is None:
+        container = Container()
+        resolver = container.element_resolver()
 
     register_resolve_routes(app, resolver)
     return app
 
 
-# local-only runner
 if __name__ == "__main__":
     import uvicorn
 
