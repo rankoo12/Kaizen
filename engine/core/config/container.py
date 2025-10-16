@@ -21,6 +21,17 @@ def build_container() -> "Container":
     return Container()
 
 
+def _resolve_snapshot_stub(
+    *, plan, html_path=None, tolerance: float, healer_depth: int
+):
+    # Type-correct no-op result; preserves runner behavior until real pipeline lands
+    return {
+        "candidates": [],
+        "reason": f"stub(plan={getattr(plan, 'target_query', {})}, "
+        f"html_path={html_path}, tol={tolerance}, depth={healer_depth})",
+    }
+
+
 class StdoutLogger:
     def info(self, msg: str, **kv):
         print(f"[INFO] {msg}", kv)
@@ -58,9 +69,8 @@ class Container(containers.DeclarativeContainer):
     element_resolver = providers.Factory(ElementResolver)
 
     # TODO: replace with actual resolve_snapshot service
-    resolve_snapshot = providers.Factory(
-        lambda: lambda **kwargs: {"candidates": [], "reason": "stub"}
-    )
+
+    resolve_snapshot = providers.Factory(lambda: _resolve_snapshot_stub)
 
     planner = providers.Singleton(SimplePlanner)
 
