@@ -52,7 +52,6 @@ class SnapshotRunner:
             raise ValueError("test_name is required (got None)")
         suite = _safe_name(suite)
         test_name = _safe_name(test_name)
-        print("artifact_dir:", suite, test_name)
         d = settings.SNAPSHOTS_DIR / suite / test_name
         d.mkdir(parents=True, exist_ok=True)
         return d
