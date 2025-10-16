@@ -208,3 +208,10 @@ __marimo__/
 
 #pictures
 *_final.png
+
+# Logs and runtime artifacts
+logs/
+snapshots/
+*.jsonl
+*.log
+*.tmp

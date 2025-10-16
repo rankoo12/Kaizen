@@ -5,6 +5,8 @@ from engine.core.orchestrator.snapshot_runner import SnapshotRunner
 from engine.core.orchestrator.types import IPlanner, IResolveSnapshot
 from engine.core.browser.playwright_driver import PlaywrightBrowser
 from engine.core.orchestrator.live_runner import LiveRunner
+from engine.core.logging.log import JsonlLogger, ILog
+from engine.core.config.settings import settings
 
 
 # Temporary stub for planner until integrated with real parsing logic
@@ -43,8 +45,16 @@ class InMemoryStorage:
 
 class Container(containers.DeclarativeContainer):
     wiring_config = containers.WiringConfiguration(packages=["engine"])
-    logger = providers.Singleton(StdoutLogger)
-    settings = providers.Singleton(Settings)
+
+    # Expose Pydantic Settings instance from module (env-overridable via KAIZEN_*)
+    settings = providers.Object(settings)
+
+    # Default logger: JSONL structured logs to logs/{run_id}.jsonl
+    logger: providers.Provider[ILog] = providers.Factory(
+        JsonlLogger,
+        logs_dir=settings.provided.LOGS_DIR,
+    )
+
     element_resolver = providers.Factory(ElementResolver)
 
     # TODO: replace with actual resolve_snapshot service
