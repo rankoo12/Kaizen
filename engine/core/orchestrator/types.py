@@ -14,7 +14,8 @@ class IResolveSnapshot(Protocol):
     def __call__(
         self,
         *,
-        html: str | None = None,
-        snapshot_path: str | None = None,
-        target_query: dict
+        plan: "StepPlan",
+        html_path: str | None = None,
+        tolerance: float,
+        healer_depth: int,
     ) -> dict: ...

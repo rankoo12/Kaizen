@@ -1,6 +1,7 @@
 import argparse
 import json
 from engine.core.config.container import build_container
+from pathlib import Path
 
 
 def _load_spec(path: str):
@@ -73,7 +74,16 @@ def main():
     if args.command == "snapshot-run":
         spec = _load_spec(args.spec)
         runner = container.snapshot_runner()
-        run_id = runner.run(spec, html=args.html, snapshot_path=args.snapshot)
+        html_arg = args.html
+        html_kw = {}
+        if html_arg:
+            p = Path(html_arg)
+            if p.exists() and p.is_file():
+                html_kw["html_path"] = str(p)
+            else:
+                html_kw["html"] = html_arg  # treat as inline HTML string
+
+        run_id = runner.run(spec, snapshot_path=args.snapshot, **html_kw)
         print(f"[OK] Snapshot run complete: {run_id}")
         return
 
