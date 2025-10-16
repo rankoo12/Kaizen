@@ -1,0 +1,8 @@
+{
+  "suite": "smoke3",
+  "name": "live-basic",
+  "steps": [
+    { "text": "click login" },
+    { "text": "type search query" }
+  ]
+}

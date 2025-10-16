@@ -46,8 +46,13 @@ class SnapshotRunner:
         self._log = log
 
     def _artifact_dir(self, suite: Optional[str], test_name: Optional[str]) -> Path:
-        suite = _safe_name(suite or "default")
-        test_name = _safe_name(test_name or "run")
+        if not suite:
+            raise ValueError("suite is required (got None)")
+        if not test_name:
+            raise ValueError("test_name is required (got None)")
+        suite = _safe_name(suite)
+        test_name = _safe_name(test_name)
+        print("artifact_dir:", suite, test_name)
         d = settings.SNAPSHOTS_DIR / suite / test_name
         d.mkdir(parents=True, exist_ok=True)
         return d
@@ -56,13 +61,18 @@ class SnapshotRunner:
         self,
         spec: Dict[str, Any] | Any,
         html_path: Optional[str] = None,
-        html: Optional[str] = None,  # accept inline HTML alias
+        html: Optional[str] = None,  # inline HTML alias
+        snapshot_path: Optional[
+            str
+        ] = None,  # explicit artifact dir override (from CLI --snapshot)
     ) -> str:
         """
         Runs a snapshot spec against static HTML.
-        Persists:
+
+        Persists in artifact directory:
           - steps.jsonl  : one line per executed step
           - resolve.json : final candidate summary
+
         Returns:
           - run_id (str)
         """
@@ -73,7 +83,13 @@ class SnapshotRunner:
             or _spec_get(spec, "title")
             or "run"
         )
-        artifact_dir = self._artifact_dir(suite, test_name)
+
+        # Choose artifact directory: explicit snapshot_path wins; otherwise default layout.
+        if snapshot_path:
+            artifact_dir = Path(snapshot_path)
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            artifact_dir = self._artifact_dir(suite, test_name)
 
         # If inline HTML is provided, persist it and use as html_path
         if html and not html_path:
@@ -91,8 +107,7 @@ class SnapshotRunner:
                     if storage_run_id:
                         run_id = str(storage_run_id)
                 except TypeError:
-                    # Fallback if storage.start_run signature is different
-                    storage_run_id = start(test_name)  # best-effort
+                    storage_run_id = start(test_name)
                     if storage_run_id:
                         run_id = str(storage_run_id)
 
@@ -100,7 +115,7 @@ class SnapshotRunner:
         if not run_id:
             run_id = f"run-{int(time.time())}-{_safe_name(test_name)}"
 
-        # Open per-run JSONL log (reuses DI logger if supports run_logger)
+        # Per-run JSONL logger (if available)
         run_log = None
         if self._log is not None:
             rl = getattr(self._log, "run_logger", None)
@@ -137,7 +152,7 @@ class SnapshotRunner:
             if isinstance(resolve_result, dict) and "candidates" in resolve_result:
                 all_candidates.append(resolve_result)
 
-            # Mirror to logger
+            # Mirror to logger (optional)
             if run_log:
                 run_log.info(
                     "snapshot_step",
@@ -153,7 +168,6 @@ class SnapshotRunner:
                     try:
                         rec(record)
                     except TypeError:
-                        # some test storages accept different param shapes
                         rec(step)
 
         steps_jsonl_fp.close()

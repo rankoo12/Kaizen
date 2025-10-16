@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Kaizen Smoke</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 2rem;
+        }
+
+        .row {
+            margin-bottom: 1rem;
+        }
+
+        #login {
+            padding: 0.6rem 1rem;
+        }
+
+        input[name="q"] {
+            padding: 0.4rem 0.6rem;
+            width: 240px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="row">
+        <button id="login" data-testid="login-btn" aria-label="Login">Login</button>
+    </div>
+    <div class="row">
+        <label for="q">Search</label>
+        <input id="q" name="q" placeholder="Search..." />
+    </div>
+</body>
+
+</html>

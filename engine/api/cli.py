@@ -4,19 +4,39 @@ from engine.core.config.container import build_container
 
 
 def _load_spec(path: str):
+    """Load a JSON TestSpec and return an object with attributes.
+
+    Both SnapshotRunner and LiveRunner support attribute-based access.
+    We normalize steps to lightweight objects with a `.text` attribute.
+    """
     with open(path, "r", encoding="utf-8") as f:
         spec_data = json.load(f)
 
     class Step:
-        def __init__(self, text):
+        def __init__(self, text: str):
             self.text = text
 
     class Spec:
-        def __init__(self, id, steps):
+        def __init__(self, suite, name, id, steps):
+            self.suite = suite
+            self.name = name
             self.id = id
-            self.steps = [Step(s["text"]) for s in steps]
+            self.steps = [Step(s) for s in steps]
 
-    return Spec(spec_data.get("id", "test-1"), spec_data.get("steps", []))
+    # Normalize steps text from dicts or bare strings
+    step_texts = []
+    for s in spec_data.get("steps", []):
+        if isinstance(s, dict):
+            text = s.get("text") or s.get("action") or ""
+            step_texts.append(str(text))
+        else:
+            step_texts.append(str(s))
+
+    suite = spec_data.get("suite") or spec_data.get("project")
+    name = spec_data.get("name") or spec_data.get("title") or spec_data.get("id")
+    test_id = spec_data.get("id", "test-1")
+
+    return Spec(suite=suite, name=name, id=test_id, steps=step_texts)
 
 
 def main():
@@ -54,14 +74,14 @@ def main():
         spec = _load_spec(args.spec)
         runner = container.snapshot_runner()
         run_id = runner.run(spec, html=args.html, snapshot_path=args.snapshot)
-        print(f"✅ Snapshot run complete: {run_id}")
+        print(f"[OK] Snapshot run complete: {run_id}")
         return
 
     if args.command == "live-run":
         spec = _load_spec(args.spec)
         runner = container.live_runner()
         run_id = runner.run_sync(spec, url=args.url)
-        print(f"✅ Live run complete: {run_id}")
+        print(f"[OK] Live run complete: {run_id}")
         return
 
     print("Engine CLI skeleton OK.", args)
