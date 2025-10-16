@@ -7,13 +7,11 @@ from pathlib import Path
 
 from engine.core.types.dtos import TargetQuery, LocatorCandidates
 
-router = APIRouter(prefix="/api")
-
-# --- runtime validators ---
+# --- runtime validators (ok to keep global) ---
 TA_TargetQuery = TypeAdapter(TargetQuery)
 TA_LocatorCandidates = TypeAdapter(LocatorCandidates)
 
-# --- load JSON Schema once at import ---
+# --- load JSON Schema once at import (global is fine) ---
 schema_path = (
     Path(__file__).resolve().parent.parent / "schemas" / "resolve_request.schema.json"
 )
@@ -22,9 +20,12 @@ with open(schema_path, "r", encoding="utf-8") as f:
 
 
 def register_resolve_routes(app: FastAPI, resolver) -> None:
+    # 👇 new router instance each registration to avoid cross-test leakage
+    router = APIRouter(prefix="/api", tags=["resolve"])
+
     @router.post("/resolve")
     async def resolve_endpoint(body: Dict[str, Any]):
-        # --- 1. Schema validation (rejects malformed JSON immediately) ---
+        # 1) Schema validation
         try:
             _validate(body)
         except fastjsonschema.JsonSchemaException as e:
@@ -32,7 +33,7 @@ def register_resolve_routes(app: FastAPI, resolver) -> None:
                 status_code=422, detail=f"Schema validation failed: {e.message}"
             )
 
-        # --- 2. TypedDict validation for query (extra safety) ---
+        # 2) TypedDict validation for query
         snapshot = body["snapshot"]
         query_raw = body["query"]
         try:
@@ -40,7 +41,7 @@ def register_resolve_routes(app: FastAPI, resolver) -> None:
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid TargetQuery: {e!s}")
 
-        # --- 3. Execute resolver ---
+        # 3) Execute resolver
         try:
             result = resolver.resolve(query, snapshot)
         except Exception as e:
@@ -49,7 +50,7 @@ def register_resolve_routes(app: FastAPI, resolver) -> None:
         if not result:
             raise HTTPException(status_code=404, detail="No candidates")
 
-        # --- 4. Validate response shape ---
+        # 4) Validate response shape
         try:
             return TA_LocatorCandidates.validate_python(result)
         except Exception as e:
