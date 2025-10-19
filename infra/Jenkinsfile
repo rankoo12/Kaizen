@@ -1,27 +1,63 @@
+// ---------- Kaizen Jenkinsfile (minimal, artifacts + security wired) ----------
+// Notes:
+// - Runs `make ci` (setup → lint → tests → e2e).
+// - Archives logs/, snapshots/, reports/, sbom.json.
+// - Publishes JUnit (reports/junit-*.xml) to Jenkins Test Result.
+// - Security stage runs SBOM + gitleaks (soft-fail until tuned).
+
 pipeline {
   agent any
+  options { timestamps() }
+
   stages {
-    stage('Prepare'){ steps{ checkout scm } }
-
-    stage('Playwright setup'){
-      steps { sh 'python -m playwright install --with-deps chromium' }
-    }
-
-    stage('Lint & Typecheck'){ steps{ sh 'make lint' } }
-    stage('Unit Tests'){ steps{ sh 'make test' } }
-    stage('E2E (compose)'){ steps{ sh 'make e2e' } }
-    stage('Security'){
-      steps{
-        sh 'trivy fs --exit-code 1 . || true'
-        sh 'gitleaks detect --no-git -v || true'
+    stage('Checkout') {
+      steps {
+        checkout scm
       }
     }
-    stage('Build Images'){
+
+    stage('CI') {
+      steps {
+        sh 'make ci'
+      }
+    }
+    stage('API Up (compose)'){
+      steps {
+        sh 'docker compose -f infra/docker-compose.yml up -d engine-api'
+      }
+    }
+    stage('Tests (runner)'){
       steps{
-        sh 'docker build -t kaizen/engine:$GIT_COMMIT engine'
-        sh 'docker build -t kaizen/portal-backend:$GIT_COMMIT portal/backend'
+        sh 'docker compose -f infra/docker-compose.yml up --exit-code-from engine-runner engine-runner'
+      }
+    }
+    stage('Build Image') {
+      steps {
+        sh '''
+          set -e
+          docker build \
+            -t kaizen/engine-app:${GIT_COMMIT} \
+            -f engine/Dockerfile .
+        '''
+      }
+    }
+    stage('Security') {
+      steps {
+        // SBOM (Makefile soft-fails if tooling absent)
+        sh 'make sbom'
+        // Secret scanning (soft-fail until baseline is tuned)
+        sh 'gitleaks detect --no-git -v || true'
+        // Optional: filesystem scan (soft-fail)
+        sh 'trivy fs . || true'
       }
     }
   }
-  options { timestamps() }
+
+  post {
+    always {
+      sh 'docker compose -f infra/docker-compose.yml down || true'
+      archiveArtifacts artifacts: 'logs/**, snapshots/**, reports/**, sbom.json, **/*.png', fingerprint: true, allowEmptyArchive: true
+      junit allowEmptyResults: true, testResults: 'reports/junit-*.xml'
+    }
+  }
 }
