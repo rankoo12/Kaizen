@@ -1,34 +1,81 @@
-version: "3.9"
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: kaizen-ollama
-    volumes: ["ollama_models:/root/.ollama"]
+  engine-api:
+    image: mcr.microsoft.com/playwright/python:v1.55.0-jammy
+    container_name: kaizen-engine-api
+    working_dir: /app
+
+    # Keep some safety, but allow normal installs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ "ALL" ]
+    # read_only: true           # DISABLED for dev to let pip & wheels work
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+
+    # NOTE: compose file is in infra/, mount repo root via ..
+    volumes:
+      - ..:/app:ro
+      - ../reports:/app/reports
+      - ../logs:/app/logs
+      - ../snapshots:/app/snapshots
+
+    ports:
+      - "8080:8080"
+
+    environment:
+      KAIZEN_VISUAL_TOLERANCE: "0.0025"
+      KAIZEN_HEALER_DEPTH: "2"
+      # Use browsers preinstalled in the Playwright base image
+      PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PYTHONUNBUFFERED: "1"
+
+    command: >
+      bash -lc '
+        set -e;
+        pip install --no-cache-dir -r requirements.txt;
+        uvicorn engine.api.server:create_app --host 0.0.0.0 --port 8080
+      '
+
     healthcheck:
-      test: ["CMD", "bash", "-lc", "ollama --version"]
-      interval: 30s
-      timeout: 5s
+      test: ["CMD-SHELL", "python - <<'PY'\nimport sys,urllib.request\ntry:\n  urllib.request.urlopen('http://127.0.0.1:8080/api/docs', timeout=2)\n  sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
+      interval: 15s
+      timeout: 3s
       retries: 5
+      start_period: 25s
 
-  engine:
-    build: ./engine
-    container_name: kaizen-engine
-    depends_on: [ollama]
+    restart: unless-stopped
+  engine-runner:
+    image: mcr.microsoft.com/playwright/python:v1.55.0-jammy
+    container_name: kaizen-engine-runner
+    working_dir: /app
+    depends_on:
+      engine-api:
+        condition: service_healthy
+    # Allow apt-get to run by keeping default capabilities
+    # (dropping all caps breaks setuid/setgid/chown inside apt)
+    # security_opt and cap_drop intentionally omitted for this runner
+    user: "0:0"
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - ..:/app:rw
+      - ../reports:/app/reports
+      - ../logs:/app/logs
+      - ../snapshots:/app/snapshots
     environment:
-      - OLLAMA_HOST=http://ollama:11434
-      - KAIZEN_DB=/data/kaizen.sqlite
-    volumes: ["engine_artifacts:/data"]
-    command: ["python", "-m", "engine.api.cli"]
-
-  portal-backend:
-    build: ./portal/backend
-    container_name: kaizen-portal-backend
-    depends_on: [engine]
-    environment:
-      - ENGINE_URL=http://engine:8080
-    ports: ["8088:8080"]
-    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8080"]
-
-volumes:
-  ollama_models:
-  engine_artifacts:
+      PYTHONUNBUFFERED: "1"
+      PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    command: >
+     bash -lc '
+        set -euo pipefail;
+        export DEBIAN_FRONTEND=noninteractive;
+        apt-get update;
+        # Keep minimal OS deps only
+        apt-get install -y --no-install-recommends ca-certificates;
+        # refresh shell command hash & ensure PATH is sane
+        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+        hash -r;
+        bash scripts/ci.sh
+      '
