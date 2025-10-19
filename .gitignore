@@ -215,3 +215,8 @@ snapshots/
 *.jsonl
 *.log
 *.tmp
+
+# CI artifacts
+reports/
+logs/
+snapshots/
