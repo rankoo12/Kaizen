@@ -34,7 +34,8 @@ services:
       bash -lc '
         set -e;
         pip install --no-cache-dir -r requirements.txt;
-        uvicorn engine.api.server:create_app --host 0.0.0.0 --port 8080
+        # Use factory mode so uvicorn calls create_app()
+        uvicorn engine.api.server:create_app --factory --host 0.0.0.0 --port 8080
       '
 
     healthcheck:

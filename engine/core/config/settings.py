@@ -1,5 +1,6 @@
 # engine/core/config/settings.py
 from pathlib import Path
+from typing import Literal
 from pydantic import Field, ConfigDict
 from pydantic_settings import BaseSettings
 
@@ -22,6 +23,11 @@ class Settings(BaseSettings):
     # Logging
     LOG_MAX_BYTES: int = Field(
         5_000_000, description="Max size per JSONL log before rotation (bytes)"
+    )
+
+    # Execution toggle for LiveRunner delegation
+    EXECUTION_PATH: Literal["legacy", "orchestrator"] = Field(
+        default="legacy", description="Selects live execution path"
     )
     model_config = ConfigDict(env_prefix="KAIZEN_")
 

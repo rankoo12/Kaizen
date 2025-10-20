@@ -1,0 +1,21 @@
+# Core pipeline & UX
+workflow-aggregator
+pipeline-stage-view
+
+# Docker
+docker-workflow
+
+# Git & GitHub
+git
+github
+github-branch-source
+
+# Test reporting
+junit
+
+# Quality of life
+timestamper
+ansicolor
+
+# Optional: Configuration as Code (future-proof Jenkins setup)
+configuration-as-code

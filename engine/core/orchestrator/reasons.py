@@ -1,0 +1,8 @@
+URL_NOT_ALLOWED = "url_not_allowed"
+MISSING_TARGET = "missing_target"
+RESOLVE_ZERO = "resolve_zero_candidates"
+RESOLVE_MULTI = "resolve_multiple_candidates"
+MISSING_HANDLER = "missing_handler"
+INVALID_TOOLCALL = "invalid_toolcall"
+UNSUPPORTED_TOOL = "unsupported_tool"
+RESOLVER_NO_FIND = "resolver_no_find"

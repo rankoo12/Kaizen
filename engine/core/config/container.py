@@ -5,6 +5,8 @@ from engine.core.orchestrator.snapshot_runner import SnapshotRunner
 from engine.core.orchestrator.types import IPlanner, IResolveSnapshot
 from engine.core.browser.playwright_driver import PlaywrightBrowser
 from engine.core.orchestrator.live_runner import LiveRunner
+from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
+from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
 from engine.core.config.settings import settings
 
@@ -70,7 +72,8 @@ class Container(containers.DeclarativeContainer):
 
     # TODO: replace with actual resolve_snapshot service
 
-    resolve_snapshot = providers.Factory(lambda: _resolve_snapshot_stub)
+    # Provide the callable directly for clarity
+    resolve_snapshot = providers.Object(_resolve_snapshot_stub)
 
     planner = providers.Singleton(SimplePlanner)
 
@@ -80,13 +83,8 @@ class Container(containers.DeclarativeContainer):
     # Playwright browser adapter (for Live Mode)
     playwright_browser = providers.Singleton(PlaywrightBrowser)
 
-    live_runner = providers.Factory(
-        LiveRunner,
-        planner=planner,
-        browser=playwright_browser,
-        storage=storage,
-        log=logger,
-    )
+    # Action handlers registry (placeholder; real handlers to be provided later)
+    action_handlers = providers.Object({})
 
     snapshot_runner = providers.Factory(
         SnapshotRunner,
@@ -94,4 +92,32 @@ class Container(containers.DeclarativeContainer):
         resolve_snapshot=resolve_snapshot,
         storage=storage,
         log=logger,
+    )
+
+    # Deterministic plan executor (stub) and high-level orchestrator
+    plan_executor = providers.Factory(
+        DeterministicPlanExecutor,
+        browser=playwright_browser,
+        handlers=action_handlers,
+        resolver=element_resolver,
+        log=logger,
+    )
+
+    orchestrator = providers.Factory(
+        EngineOrchestrator,
+        planner=planner,
+        plan_executor=plan_executor,
+        snapshot_runner=snapshot_runner,
+        storage=storage,
+        log=logger,
+    )
+
+    live_runner = providers.Factory(
+        LiveRunner,
+        planner=planner,
+        browser=playwright_browser,
+        storage=storage,
+        log=logger,
+        orchestrator=orchestrator,
+        settings=settings,
     )

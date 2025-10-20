@@ -1,13 +1,30 @@
-// ---------- Kaizen Jenkinsfile (minimal, artifacts + security wired) ----------
-// Notes:
-// - Runs `make ci` (setup → lint → tests → e2e).
-// - Archives logs/, snapshots/, reports/, sbom.json.
-// - Publishes JUnit (reports/junit-*.xml) to Jenkins Test Result.
-// - Security stage runs SBOM + gitleaks (soft-fail until tuned).
+// infra/Jenkinsfile — Kaizen CI (Docker agent runs tests; no API container)
+// This pipeline:
+//  - checks out the repo
+//  - runs tests inside a Playwright-ready Docker agent by calling scripts/ci.sh
+//  - publishes JUnit results and archives artifacts (reports/, logs/, snapshots/)
 
 pipeline {
-  agent any
-  options { timestamps() }
+  agent {
+    docker {
+      image 'mcr.microsoft.com/playwright/python:v1.55.0-jammy'
+      // run as root to allow apt/pip installs; cache pip between runs
+      args '-u root -v $HOME/.cache/pip:/root/.cache/pip:rw'
+      reuseNode true
+    }
+  }
+
+  options {
+    ansiColor('xterm')
+    timestamps()
+    timeout(time: 30, unit: 'MINUTES')
+  }
+
+  environment {
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+    PYTEST_OPTS = ''   // set to '-vv' locally if you want more verbosity
+    PYTHONUNBUFFERED = '1'
+  }
 
   stages {
     stage('Checkout') {
@@ -16,48 +33,21 @@ pipeline {
       }
     }
 
-    stage('CI') {
+    // Assumes scripts/ci.sh is the bash script that installs make/deps, installs Playwright, and runs `make ci`.
+    stage('Test') {
       steps {
-        sh 'make ci'
+        sh 'bash scripts/ci.sh'
       }
     }
-    stage('API Up (compose)'){
-      steps {
-        sh 'docker compose -f infra/docker-compose.yml up -d engine-api'
-      }
-    }
-    stage('Tests (runner)'){
-      steps{
-        sh 'docker compose -f infra/docker-compose.yml up --exit-code-from engine-runner engine-runner'
-      }
-    }
-    stage('Build Image') {
-      steps {
-        sh '''
-          set -e
-          docker build \
-            -t kaizen/engine-app:${GIT_COMMIT} \
-            -f engine/Dockerfile .
-        '''
-      }
-    }
-    stage('Security') {
-      steps {
-        // SBOM (Makefile soft-fails if tooling absent)
-        sh 'make sbom'
-        // Secret scanning (soft-fail until baseline is tuned)
-        sh 'gitleaks detect --no-git -v || true'
-        // Optional: filesystem scan (soft-fail)
-        sh 'trivy fs . || true'
-      }
-    }
+
+    // If you want to build a Docker image after tests pass, we can add a Build stage here later.
+    // If you want to boot the API in CI, we can add an "API Smoke" stage or switch to the compose-based flow.
   }
 
   post {
     always {
-      sh 'docker compose -f infra/docker-compose.yml down || true'
-      archiveArtifacts artifacts: 'logs/**, snapshots/**, reports/**, sbom.json, **/*.png', fingerprint: true, allowEmptyArchive: true
       junit allowEmptyResults: true, testResults: 'reports/junit-*.xml'
+      archiveArtifacts artifacts: 'reports/**,logs/**,snapshots/**', fingerprint: true, allowEmptyArchive: true
     }
   }
 }

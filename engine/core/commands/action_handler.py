@@ -1,7 +1,9 @@
 from typing import Protocol
+from dataclasses import dataclass
 from ..types.ontology import ToolCall
 
 
+@dataclass(frozen=True)
 class ExecCtx:
     """Immutable execution context for a single run.
     Extend later with logger, clock, storage, browser handle, timeouts.
@@ -10,6 +12,7 @@ class ExecCtx:
     run_id: str
 
 
+@dataclass
 class StepResult:
     """Result of executing a single tool call."""
 

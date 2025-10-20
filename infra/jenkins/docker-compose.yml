@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jenkins
+    restart: unless-stopped
+    ports:
+      - "8081:8080"   # Jenkins UI (host:container)
+      - "50000:50000" # Jenkins inbound agents
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+      # You can add more, e.g. JENKINS_OPTS=...
+    volumes:
+      - jenkins_home:/var/jenkins_home           # persistent Jenkins data
+      - /var/run/docker.sock:/var/run/docker.sock # allow Jenkins to run Docker on the host
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  jenkins_home:
