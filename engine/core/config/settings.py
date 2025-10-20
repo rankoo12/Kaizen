@@ -1,7 +1,7 @@
 # engine/core/config/settings.py
 from pathlib import Path
 from pydantic import Field, ConfigDict
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     LOGS_DIR: Path = Field(default=Path("logs"))
     SNAPSHOTS_DIR: Path = Field(default=Path("snapshots"))
 
+    # Metadata
+    VERSION: str = "0.0.0-dev"
+    GIT_SHA: str = "dev"
+
+    # Logging
+    LOG_MAX_BYTES: int = Field(
+        5_000_000, description="Max size per JSONL log before rotation (bytes)"
+    )
     model_config = ConfigDict(env_prefix="KAIZEN_")
 
 
@@ -23,3 +31,8 @@ settings = Settings()
 # Ensure folders exist (small DX improvement, non-fatal)
 settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
 settings.SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# Shared settings getter for DI
+def get_settings() -> Settings:
+    return settings
