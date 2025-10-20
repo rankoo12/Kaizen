@@ -20,11 +20,8 @@ def _latest_snapshot_dir(root: Path) -> Path | None:
     Find the newest snapshot artifact folder by resolve.json mtime.
     Returns the parent directory containing resolve.json and steps.jsonl.
     """
-    print(f"THIS IS PATH : {Path}")
     base = root / "snapshots"
-    print(f"this is base : {base}")
     if not base.exists():
-        print("RETURNED NONE")
         return None
     candidates = []
     for resolve_file in base.rglob("resolve.json"):
@@ -32,14 +29,25 @@ def _latest_snapshot_dir(root: Path) -> Path | None:
             mtime = resolve_file.stat().st_mtime
             candidates.append((mtime, resolve_file.parent))
         except Exception:
-            print("EXCEPTION")
             continue
     if not candidates:
-        print("RETURNED NONE2")
         return None
     candidates.sort(key=lambda x: x[0], reverse=True)
-    print(candidates)
     return candidates[0][1]
+
+
+def _metrics_path(root: Path) -> Path:
+    return (root / "logs" / "metrics.json").resolve()
+
+
+def _metrics_count(root: Path) -> int:
+    p = _metrics_path(root)
+    if not p.exists():
+        return 0
+    try:
+        return int(json.loads(p.read_text(encoding="utf-8")).get("runs_total", 0))
+    except Exception:
+        return 0
 
 
 def test_e2e_smoke_snapshot_and_live(tmp_path):
@@ -60,6 +68,7 @@ def test_e2e_smoke_snapshot_and_live(tmp_path):
     # -----------------------
     # Snapshot run (static)
     # -----------------------
+    before_snap = _metrics_count(root)
     snap_cmd = [
         sys.executable,
         "-m",
@@ -73,10 +82,13 @@ def test_e2e_smoke_snapshot_and_live(tmp_path):
     assert (
         snap.returncode == 0
     ), f"snapshot-run failed:\nSTDOUT:\n{snap.stdout}\nSTDERR:\n{snap.stderr}"
+    after_snap = _metrics_count(root)
+    assert (
+        after_snap >= before_snap + 1
+    ), f"metrics not incremented by snapshot run: before={before_snap}, after={after_snap}"
 
     # Discover the produced artifact directory dynamically
     snapshots_dir = _latest_snapshot_dir(root)
-    print(f"THIS IS SNAPSHOT_DIR : {snapshots_dir}")
     assert (
         snapshots_dir is not None
     ), "Snapshot artifact directory not found (resolve.json not discovered)"
@@ -98,6 +110,7 @@ def test_e2e_smoke_snapshot_and_live(tmp_path):
     # -----------------------
     # Live run (browser)
     # -----------------------
+    before_live = _metrics_count(root)
     data_url = _data_url_for_html(html_path)
     live_cmd = [
         sys.executable,
@@ -112,3 +125,7 @@ def test_e2e_smoke_snapshot_and_live(tmp_path):
     assert (
         live.returncode == 0
     ), f"live-run failed:\nSTDOUT:\n{live.stdout}\nSTDERR:\n{live.stderr}"
+    after_live = _metrics_count(root)
+    assert (
+        after_live >= before_live + 1
+    ), f"metrics not incremented by live run: before={before_live}, after={after_live}"

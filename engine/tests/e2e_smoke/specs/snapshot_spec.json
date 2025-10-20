@@ -1,5 +1,5 @@
 {
-  "suite": "smoke",
+  "suite": "smoke3",
   "name": "snapshot-basic",
   "steps": [
     { "text": "click login" },
