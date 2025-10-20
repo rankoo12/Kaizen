@@ -1,49 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo ">> (setup) Ensuring artifact directories"
+echo ">> (setup) apt & make"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends make ca-certificates
+rm -rf /var/lib/apt/lists/*
+
+echo ">> (setup) Python deps"
+python -m pip install -U pip
+if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+echo ">> (setup) Playwright runtime & browsers"
+python -m pip install -U playwright || true
+python -m playwright install-deps || true
+python -m playwright install chromium
+
+echo ">> (ensure artifact dirs)"
 mkdir -p reports logs snapshots
 
-PYTEST_OPTS=${PYTEST_OPTS:-}
+echo ">> (verify) make/pytest versions"
+make --version || { echo "make missing"; exit 127; }
+pytest --version || true
 
-echo ">> (setup) Upgrading pip and installing requirements"
-python -m pip install --upgrade pip --root-user-action=ignore
-if [ -f requirements.txt ]; then
-  python -m pip install --no-cache-dir -r requirements.txt --root-user-action=ignore
-else
-  echo ">> no requirements.txt, skipping"
-fi
-if [ -f requirements-dev.txt ]; then
-  python -m pip install --no-cache-dir -r requirements-dev.txt --root-user-action=ignore || true
-else
-  echo ">> no requirements-dev.txt, skipping"
-fi
+echo ">> (run) make ci"
+make ci
 
-# Playwright browsers are preinstalled in the base image at /ms-playwright
-# and PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 is set via compose env.
-# We skip install to avoid redundant downloads and apt usage.
-
-echo ">> (lint) Running optional linters"
-if command -v ruff >/dev/null 2>&1; then ruff . || true; else echo "ruff not installed (skipping)"; fi
-if command -v mypy >/dev/null 2>&1; then mypy . || true; else echo "mypy not installed (skipping)"; fi
-if command -v black >/dev/null 2>&1; then black --check . || true; else echo "black not installed (skipping)"; fi
-
-echo ">> (tests) Unit"
-pytest ${PYTEST_OPTS} -m "not contract and not integration and not e2e" --junitxml=reports/junit-unit.xml
-
-echo ">> (tests) Contract"
-pytest ${PYTEST_OPTS} -m "contract" --junitxml=reports/junit-contract.xml
-
-echo ">> (tests) Integration"
-pytest ${PYTEST_OPTS} -m "integration" --junitxml=reports/junit-int.xml
-
-echo ">> (tests) E2E snapshot"
-pytest ${PYTEST_OPTS} -m "e2e and snapshot" --junitxml=reports/junit-e2e-snapshot.xml || true
-
-echo ">> (tests) E2E live"
-pytest ${PYTEST_OPTS} -m "e2e and live" --junitxml=reports/junit-e2e-live.xml || true
-
-echo ">> (tests) E2E all"
-pytest ${PYTEST_OPTS} -m "e2e" --junitxml=reports/junit-e2e.xml
-
-echo ">> CI complete. Artifacts: logs/ snapshots/ reports/"
+echo ">> done"
