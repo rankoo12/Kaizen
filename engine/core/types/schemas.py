@@ -20,6 +20,7 @@ TargetQuerySchema = {
     "type": "object",
     "properties": {
         "text": {"type": "string", "minLength": 1},
+        "css": {"type": "string", "minLength": 1},
         "hints": {
             "type": "object",
             "properties": {
@@ -31,8 +32,12 @@ TargetQuerySchema = {
         },
         "scope": {"type": "string"},
     },
-    "required": ["text"],
     "additionalProperties": False,
+    # require at least one of text or css for a valid target
+    "anyOf": [
+        {"required": ["text"]},
+        {"required": ["css"]},
+    ],
 }
 
 # Per-tool arg schemas (M1 tools only)

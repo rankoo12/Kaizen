@@ -8,6 +8,7 @@ from engine.core.orchestrator.live_runner import LiveRunner
 from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
+from engine.core.reporting.reporter import IReporter
 from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
 from engine.core.config.settings import settings
 
@@ -69,6 +70,9 @@ class Container(containers.DeclarativeContainer):
         logs_dir=settings.provided.LOGS_DIR,
     )
 
+    # Reporter (optional) – override in apps/tests when needed
+    reporter: providers.Provider[IReporter | None] = providers.Object(None)
+
     element_resolver = providers.Factory(ElementResolver)
 
     # TODO: replace with actual resolve_snapshot service
@@ -112,6 +116,8 @@ class Container(containers.DeclarativeContainer):
         handlers=action_handlers,
         resolver=element_resolver,
         log=logger,
+        reporter=reporter,
+        settings=settings,
     )
 
     orchestrator = providers.Factory(
@@ -121,6 +127,7 @@ class Container(containers.DeclarativeContainer):
         snapshot_runner=snapshot_runner,
         storage=storage,
         log=logger,
+        reporter=reporter,
     )
 
     live_runner = providers.Factory(

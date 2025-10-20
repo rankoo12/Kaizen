@@ -25,6 +25,7 @@ class TargetHints(TypedDict, total=False):
 
 class TargetQuery(TypedDict, total=False):
     text: str
+    css: str
     hints: TargetHints
     scope: Optional[str]
 

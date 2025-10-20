@@ -10,6 +10,7 @@ class ExecCtx:
     """
 
     run_id: str
+    timeout_ms: int | None = None
 
 
 @dataclass

@@ -27,7 +27,7 @@ class _ClickHandler(IActionHandler):
 class _Resolver:
     def find(self, target: dict):
         if target.get("text") == "Login":
-            return [{"type": "css", "value": "#login"}]
+            return [{"type": "css", "value": "#login", "visible": True, "enabled": True}]
         return []
 
 

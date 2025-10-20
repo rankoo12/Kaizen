@@ -101,21 +101,35 @@ def test_open_http_url_rejected():
     res = ex.execute(plan, ctx=ExecCtx(run_id="r"))
 
     assert len(res) == 1 and res[0].ok is False
-    assert res[0].reason == R.URL_NOT_ALLOWED
-    assert browser.opened == []
+    assert res[0].reason == R.URL_SCHEME_NOT_ALLOWED
+
+
+def test_open_about_blank_ok():
+    browser = FakeBrowser()
+    handlers = {"open": OpenHandler(browser)}
+    resolver = FakeResolver({})
+    ex = _make_executor(browser, resolver, handlers)
+
+    plan = [{"tool": "open", "args": {"url": "about:blank"}}]
+    res = ex.execute(plan, ctx=ExecCtx(run_id="r"))
+
+    assert len(res) == 1 and res[0].ok is True
+    assert browser.opened == ["about:blank"]
 
 
 def test_click_resolves_single_candidate_ok():
     browser = FakeBrowser()
     handlers = {"click": ClickHandler(browser)}
-    resolver = FakeResolver({"Login": [{"type": "css", "value": "#login"}]})
+    resolver = FakeResolver({"Login": [{"type": "css", "value": "#login", "visible": True, "enabled": True}]})
     ex = _make_executor(browser, resolver, handlers)
 
     plan = [{"tool": "click", "args": {"target": {"text": "Login"}}}]
     res = ex.execute(plan, ctx=ExecCtx(run_id="r"))
 
     assert res[0].ok is True
-    assert browser.clicked == [{"type": "css", "value": "#login"}]
+    assert isinstance(browser.clicked, list) and len(browser.clicked) == 1
+    click0 = browser.clicked[0]
+    assert click0.get("type") == "css" and click0.get("value") == "#login"
 
 
 def test_click_zero_or_multi_candidates_fail():

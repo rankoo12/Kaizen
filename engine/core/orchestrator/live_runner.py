@@ -34,7 +34,9 @@ class LiveRunner:
             getattr(self._settings, "EXECUTION_PATH", "legacy") == "orchestrator"
             and self._orchestrator is not None
         ):
-            return self._orchestrator.run_live(spec, url=url)
+            # Run blocking orchestrator path in a worker thread to avoid
+            # interacting with the current event loop.
+            return await asyncio.to_thread(self._orchestrator.run_live, spec, url=url)
         self._log.info("Starting live run", test_id=spec.id)
         run_id = self._storage.start_run(test_id=spec.id)
 

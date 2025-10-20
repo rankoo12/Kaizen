@@ -21,6 +21,14 @@ def test_live_runner_offline_screenshot(container, tmp_path, monkeypatch):
             self.id = "demo-1"
             self.steps = [Step("noop"), Step("click login")]
 
+    # Force legacy path to preserve historical behavior of this test
+    from dependency_injector import providers
+    class _LegacySettings:
+        EXECUTION_PATH = "legacy"
+        LOGS_DIR = container.settings().LOGS_DIR
+        SNAPSHOTS_DIR = container.settings().SNAPSHOTS_DIR
+
+    container.settings.override(_LegacySettings())
     runner = container.live_runner()
     run_id = runner.run_sync(Spec())  # uses offline data: URL by default
 
