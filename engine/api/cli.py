@@ -1,7 +1,8 @@
 import argparse
 import json
-from engine.core.config.container import build_container
 from pathlib import Path
+from engine.core.config.container import build_container
+from engine.core.metrics.collector import time_run
 
 
 def _load_spec(path: str):
@@ -40,6 +41,28 @@ def _load_spec(path: str):
     return Spec(suite=suite, name=name, id=test_id, steps=step_texts)
 
 
+@time_run
+def _snapshot_run(container, args) -> str:
+    spec = _load_spec(args.spec)
+    runner = container.snapshot_runner()
+    html_arg = args.html
+    html_kw = {}
+    if html_arg:
+        p = Path(html_arg)
+        if p.exists() and p.is_file():
+            html_kw["html_path"] = str(p)
+        else:
+            html_kw["html"] = html_arg  # treat as inline HTML string
+    return runner.run(spec, snapshot_path=args.snapshot, **html_kw)
+
+
+@time_run
+def _live_run(container, args) -> str:
+    spec = _load_spec(args.spec)
+    runner = container.live_runner()
+    return runner.run_sync(spec, url=args.url)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="kaizen-engine", description="Kaizen Engine CLI"
@@ -72,25 +95,12 @@ def main():
     container = build_container()
 
     if args.command == "snapshot-run":
-        spec = _load_spec(args.spec)
-        runner = container.snapshot_runner()
-        html_arg = args.html
-        html_kw = {}
-        if html_arg:
-            p = Path(html_arg)
-            if p.exists() and p.is_file():
-                html_kw["html_path"] = str(p)
-            else:
-                html_kw["html"] = html_arg  # treat as inline HTML string
-
-        run_id = runner.run(spec, snapshot_path=args.snapshot, **html_kw)
+        run_id = _snapshot_run(container, args)
         print(f"[OK] Snapshot run complete: {run_id}")
         return
 
     if args.command == "live-run":
-        spec = _load_spec(args.spec)
-        runner = container.live_runner()
-        run_id = runner.run_sync(spec, url=args.url)
+        run_id = _live_run(container, args)
         print(f"[OK] Live run complete: {run_id}")
         return
 
