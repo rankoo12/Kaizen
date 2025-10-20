@@ -1,4 +1,4 @@
-from typing import Protocol, List
+from typing import Protocol, List, Any
 from ..types.dtos import TargetQuery, LocatorCandidates, Locator
 from .strategies.semantic import SemanticStrategy, IResolverStrategy
 
@@ -9,6 +9,8 @@ class IElementResolver(Protocol):
     def resolve(
         self, query: TargetQuery, snapshot: "PageSnapshot"
     ) -> LocatorCandidates: ...
+
+    def find(self, target: dict) -> list[Any]: ...
 
 
 class ElementResolver:

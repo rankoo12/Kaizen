@@ -8,6 +8,7 @@ from engine.core.orchestrator.live_runner import LiveRunner
 from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
+from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
 from engine.core.config.settings import settings
 
 
@@ -83,8 +84,18 @@ class Container(containers.DeclarativeContainer):
     # Playwright browser adapter (for Live Mode)
     playwright_browser = providers.Singleton(PlaywrightBrowser)
 
-    # Action handlers registry (placeholder; real handlers to be provided later)
-    action_handlers = providers.Object({})
+    # Concrete action handlers using shared Playwright browser
+    open_handler = providers.Factory(OpenHandler, browser=playwright_browser)
+    click_handler = providers.Factory(ClickHandler, browser=playwright_browser)
+    type_handler = providers.Factory(TypeHandler, browser=playwright_browser)
+    press_handler = providers.Factory(PressHandler, browser=playwright_browser)
+
+    action_handlers = providers.Dict(
+        open=open_handler,
+        click=click_handler,
+        type=type_handler,
+        press=press_handler,
+    )
 
     snapshot_runner = providers.Factory(
         SnapshotRunner,

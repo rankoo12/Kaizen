@@ -2,6 +2,7 @@ from typing import Any
 
 from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.commands.action_handler import ExecCtx, IActionHandler, StepResult
+from engine.core.orchestrator import reasons as R
 
 
 class FakeBrowser:
@@ -100,7 +101,7 @@ def test_open_http_url_rejected():
     res = ex.execute(plan, ctx=ExecCtx(run_id="r"))
 
     assert len(res) == 1 and res[0].ok is False
-    assert res[0].reason == "url_not_allowed"
+    assert res[0].reason == R.URL_NOT_ALLOWED
     assert browser.opened == []
 
 
@@ -131,8 +132,8 @@ def test_click_zero_or_multi_candidates_fail():
         [{"tool": "click", "args": {"target": {"text": "Ambiguous"}}}], ctx=ExecCtx(run_id="r")
     )
 
-    assert res0[0].ok is False and res0[0].reason == "resolve_zero_candidates"
-    assert res2[0].ok is False and res2[0].reason == "resolve_multiple_candidates"
+    assert res0[0].ok is False and res0[0].reason == R.RESOLVE_ZERO
+    assert res2[0].ok is False and res2[0].reason == R.RESOLVE_MULTI
 
 
 def test_type_and_press_happy_paths():

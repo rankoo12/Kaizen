@@ -9,6 +9,7 @@ from engine.core.browser.browser_port import IBrowser
 from engine.core.resolving.element_resolver import IElementResolver
 from engine.core.reporting.reporter import IReporter
 from engine.core.time.clock import IClock
+from engine.core.orchestrator import reasons as R
 
 
 class DeterministicPlanExecutor(IPlanExecutor):
@@ -45,7 +46,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
 
             # Safety checks beyond schema
             if not tool or not isinstance(args, dict):
-                results.append(StepResult(ok=False, reason="invalid_toolcall"))
+                results.append(StepResult(ok=False, reason=R.INVALID_TOOLCALL))
                 continue
 
             if self._log:
@@ -59,14 +60,14 @@ class DeterministicPlanExecutor(IPlanExecutor):
 
             handler = self._handlers.get(tool)
             if handler is None:
-                results.append(StepResult(ok=False, reason="missing_handler"))
+                results.append(StepResult(ok=False, reason=R.MISSING_HANDLER))
                 continue
 
             # Enforce offline-safe open policy
             if tool == "open":
                 url = args.get("url", "")
                 if not (isinstance(url, str) and (url.startswith("data:") or url == "about:blank")):
-                    results.append(StepResult(ok=False, reason="url_not_allowed"))
+                    results.append(StepResult(ok=False, reason=R.URL_NOT_ALLOWED))
                     continue
 
                 res = handler.execute(call, ctx)
@@ -80,7 +81,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 # press may not require a target
                 requires_target = tool in {"click", "type"}
                 if requires_target and not isinstance(target, dict):
-                    results.append(StepResult(ok=False, reason="missing_target"))
+                    results.append(StepResult(ok=False, reason=R.MISSING_TARGET))
                     continue
 
                 resolved = None
@@ -93,15 +94,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         except Exception:
                             candidates = []
                         if len(candidates) != 1:
-                            reason = (
-                                "resolve_zero_candidates" if len(candidates) == 0 else "resolve_multiple_candidates"
-                            )
+                            reason = R.RESOLVE_ZERO if len(candidates) == 0 else R.RESOLVE_MULTI
                             results.append(StepResult(ok=False, reason=reason))
                             continue
                         resolved = candidates[0]
                     else:
                         # No live snapshot available for resolve(); require a finder
-                        results.append(StepResult(ok=False, reason="resolver_no_find"))
+                        results.append(StepResult(ok=False, reason=R.RESOLVER_NO_FIND))
                         continue
 
                 # Attach resolved info for handlers via meta (non-schema execution detail)
@@ -116,7 +115,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Unsupported tools for now
-            results.append(StepResult(ok=False, reason="unsupported_tool"))
+            results.append(StepResult(ok=False, reason=R.UNSUPPORTED_TOOL))
         return results
 
     def _emit_report(self, ctx: ExecCtx, index: int, tool: str, res: StepResult) -> None:
