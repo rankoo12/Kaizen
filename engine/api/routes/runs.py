@@ -75,4 +75,15 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
 
         return {"run_id": run_id, "status": "unknown", "stats": {}}
 
+    @router.post("/runs/{run_id}/finish")
+    async def finish_run(run_id: str, body: Dict[str, Any]):
+        """Accept final stats from external runner and record in reporter."""
+        stats = body.get("stats") or {}
+        try:
+            reporter_mod.RUN_REPORTER.on_run_finish(run_id, dict(stats))
+            reporter_mod.RUN_REPORTER.on_finish(run_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"finish error: {e!s}")
+        return {"ok": True}
+
     app.include_router(router)

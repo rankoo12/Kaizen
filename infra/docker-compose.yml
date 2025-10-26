@@ -68,15 +68,20 @@ services:
       PYTHONUNBUFFERED: "1"
       PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    environment:
+      KAIZEN_API_BASE: "http://engine-api:8080/api"
     command: >
-     bash -lc '
+      bash -lc '
         set -euo pipefail;
         export DEBIAN_FRONTEND=noninteractive;
         apt-get update;
-        # Keep minimal OS deps only
         apt-get install -y --no-install-recommends ca-certificates;
-        # refresh shell command hash & ensure PATH is sane
-        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-        hash -r;
-        bash scripts/ci.sh
+        rm -rf /var/lib/apt/lists/*;
+        python -m pip install -U pip;
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi;
+        # Playwright runtime is in base image; install deps and chromium only if needed
+        python -m playwright install-deps || true;
+        python -m playwright install chromium || true;
+        mkdir -p reports logs snapshots;
+        python -m engine.runner
       '
