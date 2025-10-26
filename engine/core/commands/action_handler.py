@@ -1,5 +1,6 @@
 from typing import Protocol
 from dataclasses import dataclass
+from typing import Any, Optional, Dict
 from ..types.ontology import ToolCall
 
 
@@ -19,6 +20,7 @@ class StepResult:
 
     ok: bool = True
     reason: str | None = None
+    signature: Optional[Dict[str, Any]] = None
 
 
 class IActionHandler(Protocol):
