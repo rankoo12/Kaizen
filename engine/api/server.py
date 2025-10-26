@@ -3,6 +3,7 @@ from engine.api.routes.resolve import register_resolve_routes
 from engine.api.routes.system import router as system_router
 from engine.api.routes.metrics import router as metrics_router
 from engine.api.routes.runs import register_run_routes
+from engine.api.routes.suites import register_suite_routes
 from engine.core.config.container import Container
 
 
@@ -30,6 +31,7 @@ def create_app(resolver=None) -> FastAPI:
     # Register run endpoints using the orchestrator
     try:
         register_run_routes(app, orchestrator)
+        register_suite_routes(app, orchestrator)
     except NameError:
         # In case a custom resolver was injected without container
         pass
