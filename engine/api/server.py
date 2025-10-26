@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from engine.api.routes.resolve import register_resolve_routes
 from engine.api.routes.system import router as system_router
 from engine.api.routes.metrics import router as metrics_router
-from engine.api.routes.metrics import router as metrics_router
 from engine.core.config.container import Container
 
 
@@ -17,11 +16,14 @@ def create_app(resolver=None) -> FastAPI:
     if resolver is None:
         container = Container()
         resolver = container.element_resolver()
+        # Ensure reporter backend is wired globally for routes
+        import engine.core.reporting.reporter as reporter_mod
+
+        reporter_mod.RUN_REPORTER = container.reporter()
 
     # Register routes
     register_resolve_routes(app, resolver)
     app.include_router(system_router, prefix="/api")
-    app.include_router(metrics_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
 
     return app
