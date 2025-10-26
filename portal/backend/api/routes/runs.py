@@ -1,13 +1,80 @@
-from fastapi import APIRouter
+import os
+from typing import Any, Dict
+
+import httpx
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+ENGINE_API_BASE = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+
+
 @router.post("")
-def create_run():
-    return {"runId": "R-0001"}
+def create_run(body: Dict[str, Any] | None = None):
+    body = body or {}
+    # If a suite spec is provided, ensure it is stored first
+    try:
+        spec = body.get("spec")
+        suite_id = body.get("suite_id") or (spec or {}).get("id")
+        if spec and not suite_id:
+            # allow name-based id fallback
+            suite_id = spec.get("name")
+        if spec:
+            with httpx.Client(timeout=10.0) as client:
+                client.post(f"{ENGINE_API_BASE}/suites", json={"spec": spec, "id": suite_id})
+        # Enqueue job for runner to execute
+        enqueue_payload = {
+            k: v
+            for k, v in body.items()
+            if k in ("spec", "mode", "html", "html_path", "url", "snapshot", "snapshot_path")
+        }
+        if not enqueue_payload.get("spec") and suite_id:
+            # retrieve spec to enqueue by value
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(f"{ENGINE_API_BASE}/suites/{suite_id}")
+                if r.status_code == 200:
+                    enqueue_payload["spec"] = r.json().get("spec")
+        with httpx.Client(timeout=10.0) as client:
+            r = client.post(f"{ENGINE_API_BASE}/queue/runs", json=enqueue_payload)
+            r.raise_for_status()
+            job_id = r.json().get("job_id")
+            print(f"[portal] enqueued job job_id={job_id}")
+            return {"jobId": job_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal run enqueue error: {e!s}")
 
 
-@router.get("/{run_id}")
-def get_run(run_id: str):
-    return {"status": "queued", "startedAt": None, "finishedAt": None}
+@router.get("/{job_id}")
+def get_run(job_id: str):
+    # Reflect queued/running and return run stats if available
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            st = client.get(f"{ENGINE_API_BASE}/queue/state").json()
+            running = st.get("running") or []
+            matched_running = None
+            for r in running:
+                if str(r.get("job_id")) == str(job_id):
+                    matched_running = r
+                    break
+            if matched_running is not None:
+                run_id = matched_running.get("run_id")
+                if run_id:
+                    data = client.get(f"{ENGINE_API_BASE}/runs/{run_id}").json()
+                    return {"jobId": job_id, "runId": run_id, "status": data.get("status"), "stats": data.get("stats", {}), "byTool": data.get("by_tool", {})}
+                # If job is running but run_id not yet assigned, reflect running state
+                return {"jobId": job_id, "status": "running"}
+            # if still queued
+            queued = st.get("queued") or []
+            for q in queued:
+                if str(q.get("job_id")) == str(job_id):
+                    return {"jobId": job_id, "status": "queued"}
+            # fallback: recently completed lookup
+            comp = client.get(f"{ENGINE_API_BASE}/queue/completed/{job_id}").json().get("job")
+            if comp and comp.get("run_id"):
+                run_id = comp.get("run_id")
+                data = client.get(f"{ENGINE_API_BASE}/runs/{run_id}").json()
+                return {"jobId": job_id, "runId": run_id, "status": data.get("status"), "stats": data.get("stats", {}), "byTool": data.get("by_tool", {})}
+            return {"jobId": job_id, "status": "unknown"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal run status error: {e!s}")
