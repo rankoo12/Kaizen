@@ -40,6 +40,12 @@ pipeline {
       }
     }
 
+    stage('API Smoke') {
+      steps {
+        sh 'python scripts/ci_sanity.py'
+      }
+    }
+
     // If you want to build a Docker image after tests pass, we can add a Build stage here later.
     // If you want to boot the API in CI, we can add an "API Smoke" stage or switch to the compose-based flow.
   }
