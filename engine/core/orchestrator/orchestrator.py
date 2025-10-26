@@ -8,6 +8,8 @@ from engine.core.validation.plan_validator import validate_plan as _validate_pla
 from engine.core.logging.log import ILog
 from engine.core.commands.action_handler import ExecCtx
 from engine.core.reporting.reporter import IReporter
+from engine.core.llm.text_llm import ILLMText
+from engine.core.config.settings import Settings, settings as _settings
 from engine.core.types.dtos import StepSpec
 
 
@@ -30,6 +32,8 @@ class EngineOrchestrator(IOrchestrator):
         validator: Callable[[Any], None] | None = None,
         log: ILog | None = None,
         reporter: IReporter | None = None,
+        llm: ILLMText | None = None,
+        settings: Settings = _settings,
     ) -> None:
         self._planner = planner
         self._executor = plan_executor
@@ -38,6 +42,8 @@ class EngineOrchestrator(IOrchestrator):
         self._validate = validator or _validate_plan
         self._log = log
         self._reporter = reporter
+        self._llm = llm
+        self._settings = settings
 
     def run_snapshot(
         self,
@@ -55,7 +61,14 @@ class EngineOrchestrator(IOrchestrator):
             snapshot_path=snapshot_path,
         )
         if self._reporter:
-            self._reporter.on_run_start(run_id, mode="snapshot")
+            self._reporter.on_run_start(
+                run_id,
+                mode="snapshot",
+                planner="glue",
+                planner_fallbacks=0,
+                healer="none",
+                heal_attempts=0,
+            )
 
         # Optionally execute simple post-load steps via executor (no navigation)
         steps = getattr(spec, "steps", []) or []
@@ -75,12 +88,34 @@ class EngineOrchestrator(IOrchestrator):
                 ctx = ExecCtx(run_id=run_id)
                 results = self._executor.execute(plan, ctx=ctx)
 
-        # Reporter run-finish events with minimal stats
+        # Reporter run-finish events with minimal stats + healing stats
         if self._reporter:
             total = len(results)
             passed = sum(1 for r in results if getattr(r, "ok", False))
             failed = total - passed
-            stats = {"total": total, "passed": passed, "failed": failed}
+            reasons: dict[str, int] = {}
+            for r in results:
+                key = getattr(r, "reason", None) or "none"
+                reasons[key] = reasons.get(key, 0) + 1
+            heal_stats = {}
+            try:
+                heal_stats = self._executor.get_last_heal_stats() or {}
+            except Exception:
+                heal_stats = {}
+            stats = {
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+                "reasons": reasons,
+                # snapshot defaults for planner fields
+                "planner": "glue",
+                "planner_fallbacks": 0,
+                "healer": heal_stats.get("healer", "none"),
+                "heal_attempts": heal_stats.get("heal_attempts", 0),
+                "heal_successes": heal_stats.get("heal_successes", 0),
+                "healed_rate": max(0.0, min(1.0, float(heal_stats.get("healed_rate", 0.0) or 0.0))),
+                "redactions": [],
+            }
             self._reporter.on_run_finish(run_id, stats)
             self._reporter.on_finish(run_id)
         return run_id
@@ -93,9 +128,24 @@ class EngineOrchestrator(IOrchestrator):
         else:
             run_id = f"run-{test_id}"
         if self._log:
-            self._log.info("orchestrator.live.start", test_id=test_id, run_id=run_id)
+            extra = {}
+            try:
+                if getattr(self._settings, "SBOM_REF", None):
+                    extra["sbom_ref"] = self._settings.SBOM_REF
+            except Exception:
+                pass
+            self._log.info("orchestrator.live.start", test_id=test_id, run_id=run_id, **extra)
+        # Determine planner path before emitting start event
+        planner_path = getattr(self._settings, "PLANNER_PATH", "glue") if hasattr(self, "_settings") and self._settings else "glue"
         if self._reporter:
-            self._reporter.on_run_start(run_id, mode="live")
+            self._reporter.on_run_start(
+                run_id,
+                mode="live",
+                planner=planner_path,
+                planner_fallbacks=0,
+                healer="none",
+                heal_attempts=0,
+            )
 
         # Build a minimal deterministic plan: open a safe URL first
         target_url = url or "about:blank"
@@ -104,6 +154,8 @@ class EngineOrchestrator(IOrchestrator):
         ]
 
         # Minimal conversion of spec steps into ToolCalls (offline-safe)
+        # planner_path computed above
+        fallback_count = 0
         steps = getattr(spec, "steps", []) or []
         for s in steps:
             text = None
@@ -113,27 +165,33 @@ class EngineOrchestrator(IOrchestrator):
                 text = getattr(s, "text", None) if hasattr(s, "text") else None
             if not text or not isinstance(text, str):
                 continue
+            if planner_path == "llm" and self._llm is not None:
+                try:
+                    import json
+
+                    raw = self._llm.ask(text)
+                    calls = json.loads(raw)
+                    # allow single object or list
+                    calls_list = calls if isinstance(calls, list) else [calls]
+                    self._validate(calls_list)
+                    plan.extend(calls_list)
+                    continue
+                except Exception:
+                    fallback_count += 1
+                    # fall through to glue mapping below
+            # glue mapping fallback
             lower = text.strip().lower()
             if lower.startswith("click "):
                 raw = text.split(" ", 1)[1].strip() or ""
                 # Prefer structured CSS target when user specifies #id or .class
-                if raw.startswith("#") or raw.startswith("."):
-                    target = {"css": raw}
-                else:
-                    target = {"text": raw}
+                target = {"css": raw} if (raw.startswith("#") or raw.startswith(".")) else {"text": raw}
                 plan.append({"tool": "click", "args": {"target": target}})
             elif lower.startswith("type "):
                 typed = text.split(" ", 1)[1].strip()
-                plan.append({
-                    "tool": "type",
-                    "args": {"target": {"text": "input"}, "text": typed},
-                })
+                plan.append({"tool": "type", "args": {"target": {"text": "input"}, "text": typed}})
             elif lower.startswith("press "):
                 key = text.split(" ", 1)[1].strip()
-                plan.append({
-                    "tool": "press",
-                    "args": {"key": key},
-                })
+                plan.append({"tool": "press", "args": {"key": key}})
 
         # Validate and execute
         self._validate(plan)
@@ -143,14 +201,40 @@ class EngineOrchestrator(IOrchestrator):
         # Finish run and log
         if hasattr(self._storage, "finish_run"):
             self._storage.finish_run(run_id)
-        # Aggregate minimal stats
+        # Aggregate minimal stats + reasons breakdown + healing stats
         total = len(results)
         passed = sum(1 for r in results if getattr(r, "ok", False))
         failed = total - passed
-        stats = {"total": total, "passed": passed, "failed": failed}
+        reasons: dict[str, int] = {}
+        for r in results:
+            key = getattr(r, "reason", None) or "none"
+            reasons[key] = reasons.get(key, 0) + 1
+        heal_stats = {}
+        try:
+            heal_stats = self._executor.get_last_heal_stats() or {}
+        except Exception:
+            heal_stats = {}
+        stats = {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "reasons": reasons,
+            "planner": planner_path,
+            "planner_fallbacks": fallback_count,
+            "healer": heal_stats.get("healer", "none"),
+            "heal_attempts": heal_stats.get("heal_attempts", 0),
+            "heal_successes": heal_stats.get("heal_successes", 0),
+            "healed_rate": heal_stats.get("healed_rate", 0.0),
+        }
         if self._reporter:
             self._reporter.on_run_finish(run_id, stats)
             self._reporter.on_finish(run_id)
         if self._log:
-            self._log.info("orchestrator.live.finish", run_id=run_id)
+            extra = {"planner": planner_path, "planner_fallbacks": fallback_count}
+            try:
+                if getattr(self._settings, "SBOM_REF", None):
+                    extra["sbom_ref"] = self._settings.SBOM_REF
+            except Exception:
+                pass
+            self._log.info("orchestrator.live.finish", run_id=run_id, **extra)
         return run_id

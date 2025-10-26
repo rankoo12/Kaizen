@@ -30,11 +30,34 @@ class Settings(BaseSettings):
         default="orchestrator", description="Selects live execution path"
     )
 
+    # Planner path: glue (rule-based) or llm (ILLMText)
+    PLANNER_PATH: Literal["glue", "llm"] = Field(default="glue")
+
     # Security: allowed URL schemes for live open()
     ALLOWED_URL_SCHEMES: List[str] | str = Field(
         default_factory=lambda: ["data:", "about:blank"],
         description="Whitelisted URL schemes or exact values allowed for open()",
     )
+
+    # Healing toggle (deterministic heuristics only)
+    HEALER_ENABLED: bool = Field(default=False, description="Enable deterministic selector healing")
+
+    # Healer path: deterministic heuristics or llm proposals
+    HEALER_PATH: Literal["deterministic", "llm"] = Field(default="deterministic")
+
+    # Optional per-step enrichment in logs
+    REPORT_STEP_HEAL_FLAGS: bool = Field(default=False)
+
+    # Default executor timeout for resolve polling (ms). If None, legacy
+    # immediate behavior applies unless a per-step ctx.timeout_ms is given.
+    EXEC_TIMEOUT_MS: int | None = Field(default=None)
+
+    # SBOM reference identifier (if available) to tag run logs/metrics
+    SBOM_REF: str | None = Field(default=None)
+
+    # Reporter backend: in-memory or JSONL tailer
+    REPORTER_BACKEND: Literal["in_memory", "jsonl_tail"] = Field(default="in_memory")
+    REPORTER_RESYNC_ON_START: bool = Field(default=False)
 
     @model_validator(mode="before")
     @classmethod

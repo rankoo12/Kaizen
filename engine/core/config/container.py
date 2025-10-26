@@ -8,9 +8,11 @@ from engine.core.orchestrator.live_runner import LiveRunner
 from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
-from engine.core.reporting.reporter import IReporter
+from engine.core.reporting.reporter import IReporter, RUN_REPORTER, InMemoryRunReporter, JsonlTailReporter
 from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
 from engine.core.config.settings import settings
+from engine.core.healing.selector_healer import DeterministicHealer
+from engine.core.healing.selector_healer import DeterministicHealer
 
 
 # Temporary stub for planner until integrated with real parsing logic
@@ -71,7 +73,16 @@ class Container(containers.DeclarativeContainer):
     )
 
     # Reporter (optional) – override in apps/tests when needed
-    reporter: providers.Provider[IReporter | None] = providers.Object(None)
+    def _build_reporter(settings_obj):
+        backend = getattr(settings_obj, "REPORTER_BACKEND", "in_memory")
+        if backend == "jsonl_tail":
+            try:
+                return JsonlTailReporter(events_path=settings_obj.LOGS_DIR / "runs_events.jsonl", resync_on_start=bool(getattr(settings_obj, "REPORTER_RESYNC_ON_START", False)))
+            except Exception:
+                return InMemoryRunReporter()
+        return InMemoryRunReporter()
+
+    reporter: providers.Provider[IReporter | None] = providers.Callable(_build_reporter, settings)
 
     element_resolver = providers.Factory(ElementResolver)
 
@@ -110,6 +121,7 @@ class Container(containers.DeclarativeContainer):
     )
 
     # Deterministic plan executor (stub) and high-level orchestrator
+    healer = providers.Callable(lambda s: DeterministicHealer() if getattr(s, "HEALER_ENABLED", False) else None, settings)
     plan_executor = providers.Factory(
         DeterministicPlanExecutor,
         browser=playwright_browser,
@@ -118,6 +130,7 @@ class Container(containers.DeclarativeContainer):
         log=logger,
         reporter=reporter,
         settings=settings,
+        healer=healer,
     )
 
     orchestrator = providers.Factory(

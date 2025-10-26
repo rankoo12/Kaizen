@@ -53,6 +53,65 @@ def test_resolve_succeeds_before_timeout():
     assert res[0].ok is True
 
 
+def test_explicit_timeout_overrides_default():
+    class Resolver:
+        def __init__(self):
+            self.calls = 0
+
+        def find(self, target: dict):
+            self.calls += 1
+            # Candidate appears after ~200ms; explicit timeout 100ms should fail
+            return [{"css": "#login", "visible": True, "enabled": True}] if self.calls > 3 else []
+
+    class _S:
+        EXEC_TIMEOUT_MS = 2000
+
+    ex = DeterministicPlanExecutor(handlers={"click": OkHandler()}, resolver=Resolver(), clock=FakeClock(step_ms=50), settings=_S())
+    plan = [{"tool": "click", "args": {"target": {"text": "Login"}}}]
+    res = ex.execute(plan, ctx=ExecCtx(run_id="r", timeout_ms=100))
+    # Should timeout due to explicit smaller timeout
+    from engine.core.orchestrator import reasons as R
+
+    assert res[0].ok is False and res[0].reason == R.TIMEOUT_RESOLVE
+
+
+def test_default_timeout_applied_when_ctx_missing():
+    class Resolver:
+        def __init__(self):
+            self.calls = 0
+
+        def find(self, target: dict):
+            self.calls += 1
+            return [{"css": "#login", "visible": True, "enabled": True}] if self.calls > 5 else []
+
+    class _S:
+        EXEC_TIMEOUT_MS = 500
+
+    ex = DeterministicPlanExecutor(handlers={"click": OkHandler()}, resolver=Resolver(), clock=FakeClock(step_ms=100), settings=_S())
+    plan = [{"tool": "click", "args": {"target": {"text": "Login"}}}]
+    # No ctx timeout -> use default (500ms). 6th call at ~600ms -> should succeed
+    res = ex.execute(plan, ctx=ExecCtx(run_id="r"))
+    assert res[0].ok is True
+
+
+def test_legacy_immediate_when_no_defaults():
+    class Resolver:
+        def __init__(self):
+            self.calls = 0
+
+        def find(self, target: dict):
+            self.calls += 1
+            # Would appear later, but with legacy immediate behavior we fail immediately
+            return [] if self.calls == 1 else [{"css": "#login", "visible": True, "enabled": True}]
+
+    ex = DeterministicPlanExecutor(handlers={"click": OkHandler()}, resolver=Resolver(), clock=FakeClock(step_ms=100))
+    plan = [{"tool": "click", "args": {"target": {"text": "Login"}}}]
+    res = ex.execute(plan, ctx=ExecCtx(run_id="r"))
+    from engine.core.orchestrator import reasons as R
+
+    assert res[0].ok is False and res[0].reason in (R.RESOLVE_ZERO, R.RESOLVE_MULTI)
+
+
 def test_click_safety_not_visible_and_not_enabled():
     class Resolver:
         def __init__(self, cand):
