@@ -1,0 +1,55 @@
+// Minimal Jenkins pipeline: API smoke only (no make)
+// Runs on any Jenkins with Docker available. For Windows Jenkins, this
+// uses a Linux container so `make` is not required.
+
+pipeline {
+  agent {
+    docker {
+      image 'python:3.11-slim'
+      args '-u root'
+      reuseNode true
+    }
+  }
+
+  options {
+    ansiColor('xterm')
+    timestamps()
+    timeout(time: 15, unit: 'MINUTES')
+  }
+
+  environment {
+    PYTHONUNBUFFERED = '1'
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Setup Python') {
+      steps {
+        sh 'python -m pip install -U pip'
+        sh 'pip install --no-cache-dir -r requirements.txt'
+      }
+    }
+
+    stage('API Smoke') {
+      steps {
+        sh 'python scripts/ci_sanity.py'
+      }
+    }
+  }
+
+  post {
+    always {
+      script {
+        if (env.WORKSPACE) {
+          archiveArtifacts artifacts: 'logs/**,reports/**,snapshots/**', allowEmptyArchive: true
+        } else {
+          echo 'No workspace; skipping archiveArtifacts'
+        }
+      }
+    }
+  }
+}
