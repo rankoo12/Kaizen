@@ -8,7 +8,7 @@ services:
     container_name: jenkins
     restart: unless-stopped
     ports:
-      - "8081:8080"   # Jenkins UI (host:container)
+      - "8090:8080"   # Jenkins UI (host:container)
       - "50000:50000" # Jenkins inbound agents
     environment:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false

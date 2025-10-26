@@ -90,6 +90,11 @@ ci: setup playwright-install lint test-unit test-contract test-int e2e
 	@echo    - $(SNAP_DIR)/
 	@echo    - $(REPORTS_DIR)/
 
+.PHONY: ci-sanity
+ci-sanity: _ensure_dirs
+	@echo >> (sanity) Starting engine-api and exercising /api/runs
+	$(PYTHON) scripts/ci_sanity.py
+
 # ---------- Security / SBOM ----------
 .PHONY: sbom
 sbom:
