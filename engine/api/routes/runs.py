@@ -5,6 +5,9 @@ from fastapi import APIRouter, FastAPI, HTTPException
 import engine.core.reporting.reporter as reporter_mod
 
 
+_SEEN_RUN_IDS: set[str] = set()
+
+
 def register_run_routes(app: FastAPI, orchestrator) -> None:
     """Register minimal run endpoints using the existing orchestrator.
 
@@ -79,9 +82,15 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
     async def finish_run(run_id: str, body: Dict[str, Any]):
         """Accept final stats from external runner and record in reporter."""
         stats = body.get("stats") or {}
+        # guardrail: prevent duplicate run_ids
+        if str(run_id) in _SEEN_RUN_IDS:
+            raise HTTPException(status_code=409, detail="duplicate run_id")
         try:
+            _SEEN_RUN_IDS.add(str(run_id))
             reporter_mod.RUN_REPORTER.on_run_finish(run_id, dict(stats))
             reporter_mod.RUN_REPORTER.on_finish(run_id)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"finish error: {e!s}")
         return {"ok": True}
