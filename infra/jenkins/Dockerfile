@@ -5,7 +5,7 @@ USER root
 
 # Install Docker CLI inside the Jenkins container so pipelines can use `agent { docker { ... } }`
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io curl ca-certificates \
+    && apt-get install -y --no-install-recommends docker.io curl ca-certificates python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # (Optional but handy) Install Docker Compose v2 CLI plugin

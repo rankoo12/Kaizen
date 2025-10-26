@@ -3,13 +3,7 @@
 // uses a Linux container so `make` is not required.
 
 pipeline {
-  agent {
-    docker {
-      image 'python:3.11-slim'
-      args '-u root'
-      reuseNode true
-    }
-  }
+  agent any
 
   options {
     ansiColor('xterm')
@@ -29,14 +23,14 @@ pipeline {
 
     stage('Setup Python') {
       steps {
-        sh 'python -m pip install -U pip'
-        sh 'pip install --no-cache-dir -r requirements.txt'
+        sh 'python3 -m pip install -U pip'
+        sh 'pip3 install --no-cache-dir -r requirements.txt'
       }
     }
 
     stage('API Smoke') {
       steps {
-        sh 'python scripts/ci_sanity.py'
+        sh 'python3 scripts/ci_sanity.py'
       }
     }
   }
