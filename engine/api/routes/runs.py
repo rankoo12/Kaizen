@@ -87,6 +87,10 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
             raise HTTPException(status_code=409, detail="duplicate run_id")
         try:
             _SEEN_RUN_IDS.add(str(run_id))
+            try:
+                print(f"[runs] finish: run_id={run_id} stats_keys={list(stats.keys())}")
+            except Exception:
+                pass
             reporter_mod.RUN_REPORTER.on_run_finish(run_id, dict(stats))
             reporter_mod.RUN_REPORTER.on_finish(run_id)
         except HTTPException:

@@ -29,13 +29,14 @@ services:
       PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       PYTHONUNBUFFERED: "1"
+      PYTHONWARNINGS: "ignore"
 
     command: >
       bash -lc '
         set -e;
         pip install --no-cache-dir -r requirements.txt;
         # Use factory mode so uvicorn calls create_app()
-        uvicorn engine.api.server:create_app --factory --host 0.0.0.0 --port 8080
+        uvicorn engine.api.server:create_app --factory --host 0.0.0.0 --port 8080 --log-level warning --no-access-log
       '
 
     healthcheck:
@@ -68,8 +69,8 @@ services:
       PYTHONUNBUFFERED: "1"
       PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-    environment:
       KAIZEN_API_BASE: "http://engine-api:8080/api"
+      PYTHONWARNINGS: "ignore"
     command: >
       bash -lc '
         set -euo pipefail;
@@ -85,3 +86,32 @@ services:
         mkdir -p reports logs snapshots;
         python -m engine.runner
       '
+  portal:
+    image: python:3.11-slim
+    container_name: kaizen-portal
+    working_dir: /app/portal/backend
+    depends_on:
+      engine-api:
+        condition: service_healthy
+    volumes:
+      - ..:/app:ro
+    environment:
+      PYTHONUNBUFFERED: "1"
+      ENGINE_API_BASE: "http://engine-api:8080/api"
+      PYTHONWARNINGS: "ignore"
+    ports:
+      - "8081:8080"
+    command: >
+      bash -lc '
+        set -e;
+        pip install --no-cache-dir -U pip;
+        # Install runtime deps directly (no build-backend needed)
+        pip install --no-cache-dir fastapi uvicorn pydantic httpx;
+        uvicorn api:app --host 0.0.0.0 --port 8080 --log-level warning --no-access-log
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport sys,urllib.request\ntry:\n  urllib.request.urlopen('http://127.0.0.1:8080', timeout=2)\n  sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

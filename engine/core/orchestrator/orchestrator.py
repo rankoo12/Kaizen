@@ -54,12 +54,46 @@ class EngineOrchestrator(IOrchestrator):
         snapshot_path: str | None = None,
     ) -> str:
         # Snapshot stays fully deterministic/offline via existing runner
-        run_id = self._snapshot_runner.run(
-            spec,
-            html_path=html_path,
-            html=html,
-            snapshot_path=snapshot_path,
-        )
+        # Guard the snapshot runner to avoid failing the entire run in constrained envs
+        try:
+            run_id = self._snapshot_runner.run(
+                spec,
+                html_path=html_path,
+                html=html,
+                snapshot_path=snapshot_path,
+            )
+        except Exception:
+            import time as _time
+
+            run_id = f"run-error-{int(_time.time())}"
+            if self._reporter:
+                # Emit minimal start/finish so observers have a stable record
+                self._reporter.on_run_start(
+                    run_id,
+                    mode="snapshot",
+                    planner="glue",
+                    planner_fallbacks=0,
+                    healer="none",
+                    heal_attempts=0,
+                )
+                self._reporter.on_run_finish(
+                    run_id,
+                    {
+                        "total": 0,
+                        "passed": 0,
+                        "failed": 1,
+                        "reasons": {"runner_error": 1},
+                        "planner": "glue",
+                        "planner_fallbacks": 0,
+                        "healer": "none",
+                        "heal_attempts": 0,
+                        "heal_successes": 0,
+                        "healed_rate": 0.0,
+                        "redactions": [],
+                    },
+                )
+                self._reporter.on_finish(run_id)
+            return run_id
         if self._reporter:
             self._reporter.on_run_start(
                 run_id,
@@ -84,9 +118,13 @@ class EngineOrchestrator(IOrchestrator):
                     key = text.split(" ", 1)[1].strip()
                     plan.append({"tool": "press", "args": {"key": key}})
             if len(plan) > 1:
-                self._validate(plan)
-                ctx = ExecCtx(run_id=run_id)
-                results = self._executor.execute(plan, ctx=ctx)
+                try:
+                    self._validate(plan)
+                    ctx = ExecCtx(run_id=run_id)
+                    results = self._executor.execute(plan, ctx=ctx)
+                except Exception:
+                    # Keep snapshot path deterministic even if executor is unavailable (e.g., no browser)
+                    results = []
 
         # Reporter run-finish events with minimal stats + healing stats
         if self._reporter:

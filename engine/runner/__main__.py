@@ -43,6 +43,7 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
         # mark job picked up
         try:
             await client.post(f"{api_base}/queue/running", json={"job_id": job.get("job_id")})
+            print(f"[runner] picked job job_id={job.get('job_id')}")
         except Exception:
             pass
 
@@ -62,6 +63,10 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
 
         def _on_start(run_id: str):
             loop.create_task(_on_start_async(run_id))
+            try:
+                print(f"[runner] on_run_start run_id={run_id}")
+            except Exception:
+                pass
 
         reporter._on_start = _on_start
         orchestrator = container.orchestrator(reporter=reporter)
@@ -71,14 +76,19 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
 
         run_id = None
         try:
+            print(f"[runner] executing mode={mode} job_id={job.get('job_id')}")
             if mode == "live":
-                # run in thread to avoid blocking loop
-                run_id = await asyncio.to_thread(orchestrator.run_live, spec, None, url=job.get("url"))
+                # run in thread to avoid blocking loop; use keyword-only args
+                run_id = await asyncio.to_thread(
+                    orchestrator.run_live,
+                    spec,
+                    url=job.get("url"),
+                )
             else:
+                # snapshot has keyword-only args; do not pass extra positional args
                 run_id = await asyncio.to_thread(
                     orchestrator.run_snapshot,
                     spec,
-                    None,
                     html_path=job.get("html_path"),
                     html=job.get("html"),
                     snapshot_path=job.get("snapshot") or job.get("snapshot_path"),
@@ -88,6 +98,7 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
             payload = {"stats": last.get("stats", {})}
             try:
                 await client.post(f"{api_base}/runs/{run_id}/finish", json=payload)
+                print(f"[runner] posted finish run_id={run_id}")
             except Exception:
                 pass
         except Exception:
@@ -99,11 +110,13 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
                     f"{api_base}/runs/{run_id}/finish",
                     json={"stats": {"total": 0, "passed": 0, "failed": 1, "reasons": {"runner_error": 1}}},
                 )
+                print(f"[runner] posted failure run_id={run_id}")
             except Exception:
                 pass
         finally:
             try:
                 await client.post(f"{api_base}/queue/complete", json={"job_id": job.get("job_id"), "run_id": run_id})
+                print(f"[runner] complete job_id={job.get('job_id')} run_id={run_id}")
             except Exception:
                 pass
 
@@ -131,6 +144,7 @@ async def _poll_and_run(api_base: str, interval: float = 1.0) -> None:
                 except Exception:
                     job = None
                 if not job:
+                    print("[runner] queue empty")
                     break
                 t = asyncio.create_task(_run_job(api_base, job))
                 tasks.add(t)
