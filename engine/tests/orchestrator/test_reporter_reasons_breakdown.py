@@ -1,13 +1,12 @@
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
+from engine.core.orchestrator import reasons as R
 from engine.core.commands.action_handler import StepResult
 
 
 class _FakeReporter:
     def __init__(self):
-        self.start = []
         self.finish = []
-        self.steps = []
-        self.metrics = []
+        self.start = []
 
     def on_run_start(self, run_id: str, mode: str, **kv) -> None:
         self.start.append((run_id, mode, kv))
@@ -19,19 +18,14 @@ class _FakeReporter:
         pass
 
     def on_step(self, step_run: dict) -> None:
-        self.steps.append(step_run)
-
-    def on_metric(self, name: str, tags: dict | None = None):
-        self.metrics.append((name, tags or {}))
+        pass
 
 
 class _FakeExecutor:
     def __init__(self, results):
         self._results = results
-        self.calls = []
 
     def execute(self, plan, *, ctx):
-        self.calls.append((plan, ctx))
         return list(self._results)
 
 
@@ -51,13 +45,16 @@ class _FakePlanner:
         return _P()
 
 
-def test_reporter_gets_run_events_and_stats():
+def test_reasons_breakdown_in_stats():
     reporter = _FakeReporter()
-    # one success result
-    executor = _FakeExecutor([StepResult(ok=True, reason=None)])
+    results = [
+        StepResult(ok=True, reason=None),
+        StepResult(ok=False, reason=R.TIMEOUT_RESOLVE),
+        StepResult(ok=False, reason=R.NOT_VISIBLE),
+    ]
     orch = EngineOrchestrator(
         planner=_FakePlanner(),
-        plan_executor=executor,
+        plan_executor=_FakeExecutor(results),
         snapshot_runner=None,
         storage=_FakeStorage(),
         log=None,
@@ -65,11 +62,13 @@ def test_reporter_gets_run_events_and_stats():
     )
 
     class Spec:
-        id = "rep1"
+        id = "rb1"
         steps = []
 
-    run_id = orch.run_live(Spec())
-    assert reporter.start and reporter.start[0][0] == "run-rep1" and reporter.start[0][1] == "live"
+    orch.run_live(Spec())
     assert len(reporter.finish) == 1
     _, stats = reporter.finish[0]
-    assert stats["total"] == 1 and stats["passed"] == 1 and stats["failed"] == 0
+    reasons = stats.get("reasons") or {}
+    assert reasons.get("none") == 1
+    assert reasons.get(R.TIMEOUT_RESOLVE) == 1
+    assert reasons.get(R.NOT_VISIBLE) == 1
