@@ -93,8 +93,21 @@ class Container(containers.DeclarativeContainer):
 
     planner = providers.Singleton(SimplePlanner)
 
-    # TODO: replace with actual storage when implemented
-    storage = providers.Singleton(InMemoryStorage)
+    # Storage selection: Postgres when configured; fallback to in-memory
+    def _build_storage(settings_obj):
+        backend = getattr(settings_obj, "STORAGE_BACKEND", "auto")
+        dsn = getattr(settings_obj, "PG_DSN", None)
+        use_pg = (backend == "postgres") or (backend == "auto" and dsn)
+        if use_pg and dsn:
+            try:
+                from engine.core.storage.postgres import PostgresStorage  # lazy import
+
+                return PostgresStorage(dsn)
+            except Exception:
+                return InMemoryStorage()
+        return InMemoryStorage()
+
+    storage = providers.Singleton(_build_storage, settings)
 
     # Playwright browser adapter (for Live Mode)
     playwright_browser = providers.Singleton(PlaywrightBrowser)

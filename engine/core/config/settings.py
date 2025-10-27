@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     REPORTER_BACKEND: Literal["in_memory", "jsonl_tail"] = Field(default="in_memory")
     REPORTER_RESYNC_ON_START: bool = Field(default=False)
 
+    # Storage (Postgres)
+    PG_DSN: str | None = Field(default=None, description="Postgres DSN, e.g. postgresql+psycopg://user:pass@host:5432/db")
+    STORAGE_BACKEND: Literal["auto", "in_memory", "postgres"] = Field(default="auto")
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):

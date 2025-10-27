@@ -220,3 +220,10 @@ snapshots/
 reports/
 logs/
 snapshots/
+
+# DB volumes
+.pg-data/
+.mongo-data/
+# Local DB logs/dumps
+*.sql
+*.dump
