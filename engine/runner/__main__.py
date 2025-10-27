@@ -10,6 +10,67 @@ import httpx
 from engine.core.config.container import Container
 from engine.core.reporting.reporter import IReporter, StepRun
 
+# OpenTelemetry Phase 0 bootstrap (safe/no-op if deps missing)
+_OTEL_ENABLED = False
+_OTEL_TRACER = None
+_OTEL_RUNS_COUNTER = None
+_OTEL_RUN_HIST = None
+
+
+def _init_otel(service_name: str = "kaizen-engine-runner") -> None:
+    global _OTEL_ENABLED, _OTEL_TRACER, _OTEL_RUNS_COUNTER, _OTEL_RUN_HIST
+    if _OTEL_ENABLED:
+        return
+    try:
+        from opentelemetry import trace, metrics
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as OTLPHTTPSpanExporter,
+        )
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter as OTLPHTTPMetricExporter,
+        )
+        import os
+
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318")
+        res = Resource.create({"service.name": service_name})
+
+        # Traces
+        tp = TracerProvider(resource=res)
+        span_exporter = OTLPHTTPSpanExporter(endpoint=f"{endpoint}/v1/traces")
+        tp.add_span_processor(BatchSpanProcessor(span_exporter))
+        trace.set_tracer_provider(tp)
+        _OTEL_TRACER = trace.get_tracer("kaizen.engine.runner")
+
+        # Metrics
+        metric_exporter = OTLPHTTPMetricExporter(endpoint=f"{endpoint}/v1/metrics")
+        reader = PeriodicExportingMetricReader(metric_exporter)
+        mp = MeterProvider(resource=res, metric_readers=[reader])
+        metrics.set_meter_provider(mp)
+        meter = metrics.get_meter("kaizen.engine.runner")
+
+        # instruments used in Phase 0
+        _OTEL_RUNS_COUNTER = meter.create_counter(
+            name="kaizen_runs_total",
+            description="Total number of runs",
+        )
+        _OTEL_RUN_HIST = meter.create_histogram(
+            name="kaizen_run_duration_seconds",
+            unit="s",
+            description="Duration of runs in seconds",
+        )
+
+        _OTEL_ENABLED = True
+    except Exception:
+        _OTEL_ENABLED = False
+        _OTEL_TRACER = None
+        _OTEL_RUNS_COUNTER = None
+        _OTEL_RUN_HIST = None
+
 
 class StatsCaptureReporter(IReporter):
     def __init__(self) -> None:
@@ -77,22 +138,60 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
         run_id = None
         try:
             print(f"[runner] executing mode={mode} job_id={job.get('job_id')}")
-            if mode == "live":
-                # run in thread to avoid blocking loop; use keyword-only args
-                run_id = await asyncio.to_thread(
-                    orchestrator.run_live,
-                    spec,
-                    url=job.get("url"),
-                )
+            from time import time as _now
+            start = _now()
+            run_id = None
+            if _OTEL_ENABLED:
+                from opentelemetry import trace as _trace
+                from opentelemetry.trace import Status, StatusCode
+
+                tracer = _OTEL_TRACER or _trace.get_tracer("kaizen.engine.runner")
+                with tracer.start_as_current_span("kaizen.run") as span:
+                    try:
+                        span.set_attribute("mode", mode)
+                    except Exception:
+                        pass
+                    if mode == "live":
+                        run_id = await asyncio.to_thread(
+                            orchestrator.run_live,
+                            spec,
+                            url=job.get("url"),
+                        )
+                    else:
+                        run_id = await asyncio.to_thread(
+                            orchestrator.run_snapshot,
+                            spec,
+                            html_path=job.get("html_path"),
+                            html=job.get("html"),
+                            snapshot_path=job.get("snapshot") or job.get("snapshot_path"),
+                        )
+                    try:
+                        span.set_attribute("run_id", str(run_id))
+                    except Exception:
+                        pass
             else:
-                # snapshot has keyword-only args; do not pass extra positional args
-                run_id = await asyncio.to_thread(
-                    orchestrator.run_snapshot,
-                    spec,
-                    html_path=job.get("html_path"),
-                    html=job.get("html"),
-                    snapshot_path=job.get("snapshot") or job.get("snapshot_path"),
-                )
+                if mode == "live":
+                    run_id = await asyncio.to_thread(
+                        orchestrator.run_live,
+                        spec,
+                        url=job.get("url"),
+                    )
+                else:
+                    run_id = await asyncio.to_thread(
+                        orchestrator.run_snapshot,
+                        spec,
+                        html_path=job.get("html_path"),
+                        html=job.get("html"),
+                        snapshot_path=job.get("snapshot") or job.get("snapshot_path"),
+                    )
+            dur = _now() - start
+            try:
+                if _OTEL_RUNS_COUNTER:
+                    _OTEL_RUNS_COUNTER.add(1, attributes={"mode": mode})
+                if _OTEL_RUN_HIST:
+                    _OTEL_RUN_HIST.record(dur, attributes={"mode": mode})
+            except Exception:
+                pass
             # Post final stats
             last = reporter.last() or {"run_id": run_id, "stats": {}}
             payload = {"stats": last.get("stats", {})}
@@ -157,6 +256,7 @@ async def _poll_and_run(api_base: str, interval: float = 1.0) -> None:
 
 def main() -> None:
     api_base = os.environ.get("KAIZEN_API_BASE", "http://engine-api:8080/api")
+    _init_otel("kaizen-engine-runner")
     asyncio.run(_poll_and_run(api_base))
 
 
