@@ -135,6 +135,7 @@ services:
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+      - ../logs:/var/log/kaizen:ro
     ports:
       - "4318:4318"    # OTLP HTTP receiver
       - "9464:9464"    # Prometheus exporter endpoint
@@ -145,9 +146,43 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.54
     container_name: jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      COLLECTOR_OTLP_GRPC_HOST_PORT: "0.0.0.0:4317"
+      COLLECTOR_OTLP_HTTP_HOST_PORT: "0.0.0.0:4318"
     ports:
       - "16686:16686"  # Jaeger UI
       - "14250:14250"  # gRPC ingest for collector exporter
+    restart: unless-stopped
+    networks:
+      - kaizen
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - kaizen
+
+  grafana:
+    image: grafana/grafana:10.4.3
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./grafana/provisioning/datasources/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./grafana/provisioning/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
     restart: unless-stopped
     networks:
       - kaizen
