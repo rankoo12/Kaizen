@@ -1,5 +1,26 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: kaizen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kaizen
+      POSTGRES_USER: kaizen
+      POSTGRES_PASSWORD: kaizen
+    ports:
+      - "5432:5432"
+    volumes:
+      - ../.pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaizen -d kaizen"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
   engine-api:
+    depends_on:
+      postgres:
+        condition: service_healthy
     image: mcr.microsoft.com/playwright/python:v1.55.0-jammy
     container_name: kaizen-engine-api
     working_dir: /app
@@ -30,7 +51,8 @@ services:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       PYTHONUNBUFFERED: "1"
       PYTHONWARNINGS: "ignore"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      KAIZEN_STORAGE_BACKEND: "postgres"
+      KAIZEN_PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
 
     command: >
       bash -lc '
@@ -60,8 +82,8 @@ services:
     depends_on:
       engine-api:
         condition: service_healthy
-      otel-collector:
-        condition: service_started
+      postgres:
+        condition: service_healthy
     # Allow apt-get to run by keeping default capabilities
     # (dropping all caps breaks setuid/setgid/chown inside apt)
     # security_opt and cap_drop intentionally omitted for this runner
@@ -79,7 +101,8 @@ services:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       KAIZEN_API_BASE: "http://engine-api:8080/api"
       PYTHONWARNINGS: "ignore"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      KAIZEN_STORAGE_BACKEND: "postgres"
+      KAIZEN_PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
     command: >
       bash -lc '
         set -euo pipefail;
