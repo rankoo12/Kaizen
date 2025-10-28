@@ -67,6 +67,19 @@ class RunJsonlLogger:
             "event": msg,  # canonical name
             "msg": msg,  # legacy field kept for compatibility
         }
+        # Attach OpenTelemetry context if present (degrades to no-op otherwise)
+        try:
+            from opentelemetry import trace as _trace  # type: ignore
+
+            span = _trace.get_current_span()
+            if span is not None:
+                ctx = span.get_span_context()
+                if getattr(ctx, "is_valid", lambda: False)():
+                    # hex-encoded without 0x prefix per OTel semantic conventions
+                    record["trace_id"] = format(ctx.trace_id, "032x")
+                    record["span_id"] = format(ctx.span_id, "016x")
+        except Exception:
+            pass
         if kwargs:
             record.update({k: normalize(v) for k, v in kwargs.items()})
 
