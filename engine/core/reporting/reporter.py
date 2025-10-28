@@ -4,6 +4,43 @@ import time
 import json
 from pathlib import Path
 
+# Optional OpenTelemetry imports (degrade to no-op when unavailable)
+try:
+    from opentelemetry import trace as _otel_trace, metrics as _otel_metrics
+    from opentelemetry.trace import Status, StatusCode
+    _OTEL_OK = True
+except Exception:
+    _OTEL_OK = False
+    _otel_trace = None  # type: ignore
+    _otel_metrics = None  # type: ignore
+    Status = None  # type: ignore
+    StatusCode = None  # type: ignore
+
+_OTEL_METER = None
+_OTEL_STEP_HIST = None
+_OTEL_RUNS_FAILED = None
+
+def _ensure_meter():
+    global _OTEL_METER, _OTEL_STEP_HIST, _OTEL_RUNS_FAILED
+    if not _OTEL_OK:
+        return
+    if _OTEL_METER is not None:
+        return
+    try:
+        _OTEL_METER = _otel_metrics.get_meter("kaizen.engine.metrics")
+        _OTEL_STEP_HIST = _OTEL_METER.create_histogram(
+            name="kaizen_step_duration_seconds",
+            unit="s",
+            description="Duration per step",
+        )
+        _OTEL_RUNS_FAILED = _OTEL_METER.create_counter(
+            name="kaizen_runs_failed_total",
+            description="Total failed runs",
+        )
+    except Exception:
+        _OTEL_METER = None
+        _OTEL_STEP_HIST = None
+        _OTEL_RUNS_FAILED = None
 
 class StepRun(dict):
     """Serializable step record for reports/artifacts."""
@@ -43,12 +80,92 @@ class InMemoryRunReporter(IReporter):
         run_id = step_run.get("run_id")
         tool = step_run.get("tool") or "<none>"
         reason = step_run.get("reason") or "none"
+
+        # OTel Phase 1: emit a child span per step when a parent span is active
+        if _OTEL_OK:
+            try:
+                tracer = _otel_trace.get_tracer("kaizen.engine.steps")
+                name = f"step.{tool}"
+                attrs = {
+                    "run_id": str(run_id),
+                    "tool": str(tool),
+                    "reason": str(reason),
+                }
+                # optional attrs if present
+                for key in ("index", "ok", "healed", "healer"):
+                    if key in step_run:
+                        attrs[key] = step_run.get(key)
+                with tracer.start_as_current_span(name) as span:
+                    for k, v in attrs.items():
+                        try:
+                            span.set_attribute(k, v)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # Phase 2 metrics: record step duration if available
+        if _OTEL_OK:
+            try:
+                _ensure_meter()
+                if _OTEL_STEP_HIST is not None:
+                    dur = step_run.get("duration")
+                    if isinstance(dur, (int, float)):
+                        _OTEL_STEP_HIST.record(
+                            float(dur),
+                            attributes={
+                                "tool": str(tool),
+                                "ok": bool(step_run.get("ok", False)),
+                                "reason": str(reason),
+                            },
+                        )
+            except Exception:
+                pass
+
         cur = self._open.get(str(run_id))
         if cur is not None:
             cur["by_tool"][tool][reason] += 1
 
     def on_run_finish(self, run_id: str, stats: dict) -> None:
         cur = self._open.pop(str(run_id), None)
+        # Annotate the current run span with summary stats and mark status
+        if _OTEL_OK:
+            try:
+                span = _otel_trace.get_current_span()
+                if span is not None:
+                    try:
+                        span.set_attribute("stats.total", int((stats or {}).get("total", 0)))
+                        span.set_attribute("stats.passed", int((stats or {}).get("passed", 0)))
+                        span.set_attribute("stats.failed", int((stats or {}).get("failed", 0)))
+                        span.set_attribute("stats.heal_attempts", int((stats or {}).get("heal_attempts", 0)))
+                        span.set_attribute("stats.heal_successes", int((stats or {}).get("heal_successes", 0)))
+                    except Exception:
+                        pass
+                    try:
+                        failed = int((stats or {}).get("failed", 0) or 0)
+                        if failed > 0 and Status and StatusCode:
+                            span.set_status(Status(StatusCode.ERROR))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # Phase 2 metrics: runs_failed_total (attributes by mode)
+        if _OTEL_OK:
+            try:
+                _ensure_meter()
+                if _OTEL_RUNS_FAILED is not None:
+                    failed = int((stats or {}).get("failed", 0) or 0)
+                    if failed > 0:
+                        mode = None
+                        try:
+                            mode = cur.get("mode") if isinstance(cur, dict) else None
+                        except Exception:
+                            mode = None
+                        attrs = {"mode": str(mode or "unknown")}
+                        _OTEL_RUNS_FAILED.add(1, attributes=attrs)
+            except Exception:
+                pass
         payload = {"run_id": run_id, "stats": dict(stats or {})}
         if cur is not None:
             payload["mode"] = cur.get("mode")
