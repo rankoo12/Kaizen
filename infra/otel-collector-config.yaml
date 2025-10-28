@@ -1,0 +1,48 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+  filelog:
+    include:
+      - /var/log/kaizen/*.jsonl
+    start_at: beginning
+    operators:
+      - type: json_parser
+        id: parse-json
+        parse_from: body
+      - type: move
+        from: body.trace_id
+        to: attributes.trace_id
+      - type: move
+        from: body.span_id
+        to: attributes.span_id
+
+processors:
+  batch: {}
+
+exporters:
+  otlp:
+    # Export traces to Jaeger via OTLP gRPC
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:9464
+  logging:
+    loglevel: info
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [filelog]
+      processors: [batch]
+      exporters: [logging]

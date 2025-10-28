@@ -105,7 +105,14 @@ class EngineOrchestrator(IOrchestrator):
             )
 
         # Optionally execute simple post-load steps via executor (no navigation)
-        steps = getattr(spec, "steps", []) or []
+        steps = []
+        try:
+            if isinstance(spec, dict):
+                steps = spec.get("steps") or []
+            else:
+                steps = getattr(spec, "steps", []) or []
+        except Exception:
+            steps = []
         results = []
         if steps:
             plan: list[dict] = [{"tool": "open", "args": {"url": "about:blank"}}]
@@ -194,7 +201,14 @@ class EngineOrchestrator(IOrchestrator):
         # Minimal conversion of spec steps into ToolCalls (offline-safe)
         # planner_path computed above
         fallback_count = 0
-        steps = getattr(spec, "steps", []) or []
+        steps = []
+        try:
+            if isinstance(spec, dict):
+                steps = spec.get("steps") or []
+            else:
+                steps = getattr(spec, "steps", []) or []
+        except Exception:
+            steps = []
         for s in steps:
             text = None
             if isinstance(s, dict):
