@@ -15,10 +15,72 @@ _COMPLETED: Dict[str, Dict[str, Any]] = {}  # job_id -> {job_id, run_id, ts}
 def register_queue_routes(app: FastAPI) -> None:
     router = APIRouter(prefix="/api", tags=["queue"])
 
+    def _inject_traceparent(job: Dict[str, Any]) -> None:
+        try:
+            # Use global propagator (W3C tracecontext) to inject current context
+            from opentelemetry.propagate import inject  # type: ignore
+            import opentelemetry.context as context  # type: ignore
+
+            headers: Dict[str, str] = {}
+            inject(headers, context=context.get_current())
+            tp = headers.get("traceparent")
+            ts = headers.get("tracestate")
+            if tp:
+                job["traceparent"] = tp
+            if ts:
+                job["tracestate"] = ts
+        except Exception:
+            # Safe no-op when OTel not present
+            pass
+
+    # Phase 2 metrics: Observable gauge for queue depth
+    try:
+        from opentelemetry import metrics as _metrics
+        _METER = _metrics.get_meter("kaizen.engine.queue")
+
+        # OTel stable (>=1.17) style callback: accepts CallbackOptions and returns list[Observation]
+        try:
+            from opentelemetry.metrics import Observation  # type: ignore
+
+            def _observe_queue_depth(options=None):  # options: CallbackOptions
+                try:
+                    return [
+                        Observation(len(_QUEUE), {"state": "queued"}),
+                        Observation(len(_RUNNING), {"state": "running"}),
+                    ]
+                except Exception:
+                    return []
+
+            _METER.create_observable_gauge(
+                name="kaizen_queue_depth",
+                callbacks=[_observe_queue_depth],
+                description="Number of jobs queued/running",
+            )
+        except Exception:
+            # Fallback to older observer.observe signature if available
+            try:
+                def _observe_legacy(observer):
+                    try:
+                        observer.observe(len(_QUEUE), {"state": "queued"})
+                        observer.observe(len(_RUNNING), {"state": "running"})
+                    except Exception:
+                        pass
+
+                _METER.create_observable_gauge(
+                    name="kaizen_queue_depth",
+                    callbacks=[_observe_legacy],
+                    description="Number of jobs queued/running",
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     @router.post("/queue/runs")
     async def enqueue_run(body: Dict[str, Any]):
         job_id = f"job-{next(_COUNTER)}"
         job = {"job_id": job_id, **(body or {})}
+        _inject_traceparent(job)
         _QUEUE.append(job)
         try:
             print(f"[queue] enqueue job_id={job_id} keys={list((body or {}).keys())}")
@@ -40,6 +102,35 @@ def register_queue_routes(app: FastAPI) -> None:
         except Exception:
             pass
         return {"job": job}
+
+    @router.post("/queue/sample")
+    async def enqueue_sample(kind: str = "snapshot"):
+        """Enqueue a deterministic sample run to exercise tracing.
+
+        - Snapshot mode with small inline HTML and two key presses to produce step spans.
+        """
+        job_id = f"job-{next(_COUNTER)}"
+        if str(kind).lower() != "live":
+            job = {
+                "job_id": job_id,
+                "mode": "snapshot",
+                "spec": {"id": f"sample-{int(time.time())}", "steps": [{"text": "press Enter"}, {"text": "press Escape"}]},
+                "html": "<html><body><h1>Hello Kaizen</h1></body></html>",
+            }
+        else:
+            job = {
+                "job_id": job_id,
+                "mode": "live",
+                "spec": {"id": f"sample-{int(time.time())}", "steps": [{"text": "press Enter"}]},
+                "url": "about:blank",
+            }
+        _inject_traceparent(job)
+        _QUEUE.append(job)
+        try:
+            print(f"[queue] enqueue sample job_id={job_id} kind={kind}")
+        except Exception:
+            pass
+        return {"job_id": job_id, "job": job}
 
     @router.post("/queue/running")
     async def mark_running(body: Dict[str, Any]):
