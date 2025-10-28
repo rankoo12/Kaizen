@@ -60,6 +60,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
 
         results: List[StepResult] = []
         for idx, call in enumerate(plan):
+            step_start = time.time()
             tool = call.get("tool")
             args: dict[str, Any] = call.get("args", {})
 
@@ -68,6 +69,10 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 res = StepResult(ok=False, reason=R.INVALID_TOOLCALL)
                 results.append(res)
                 self._emit_metric(tool or "<none>", res)
+                try:
+                    self._emit_report(ctx, idx, tool or "<none>", res, duration=(time.time() - step_start))
+                except Exception:
+                    pass
                 continue
 
             if self._log:
@@ -104,13 +109,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 if not allowed:
                     res = StepResult(ok=False, reason=R.URL_SCHEME_NOT_ALLOWED)
                     results.append(res)
-                    self._emit_report(ctx, idx, tool, res)
+                    self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
                     self._emit_metric(tool, res)
                     continue
 
                 res = handler.execute(call, ctx)
                 results.append(res)
-                self._emit_report(ctx, idx, tool, res)
+                self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
                 self._emit_metric(tool, res)
                 continue
 
@@ -201,7 +206,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                             continue
                         res = StepResult(ok=False, reason=safety_reason, signature=self._build_signature(resolved))
                         results.append(res)
-                        self._emit_report(ctx, idx, tool, res)
+                        self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
                         self._emit_metric(tool, res)
                         continue
 
@@ -210,14 +215,14 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 if resolved is not None and isinstance(res, StepResult) and res.signature is None:
                     res.signature = self._build_signature(resolved)
                 results.append(res)
-                self._emit_report(ctx, idx, tool, res)
+                self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
                 self._emit_metric(tool, res)
                 continue
 
             # Unsupported tools for now
             res = StepResult(ok=False, reason=R.UNSUPPORTED_TOOL)
             results.append(res)
-            self._emit_report(ctx, idx, tool or "<none>", res)
+            self._emit_report(ctx, idx, tool or "<none>", res, duration=(time.time() - step_start))
             self._emit_metric(tool or "<none>", res)
         return results
 
@@ -294,7 +299,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
             sig["neighborText"] = candidate.get("neighborText")
         return sig
 
-    def _emit_report(self, ctx: ExecCtx, index: int, tool: str, res: StepResult, extra: dict | None = None) -> None:
+    def _emit_report(self, ctx: ExecCtx, index: int, tool: str, res: StepResult, duration: float | None = None, extra: dict | None = None) -> None:
         if not self._reporter:
             return
         payload = {
@@ -304,6 +309,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
             "ok": res.ok,
             "reason": res.reason,
         }
+        if duration is not None:
+            try:
+                payload["duration"] = float(duration)
+            except Exception:
+                pass
         # Optional per-step enrichment (healing flags)
         if self._settings and getattr(self._settings, "REPORT_STEP_HEAL_FLAGS", False) and extra:
             payload.update(extra)
@@ -343,6 +353,21 @@ class DeterministicPlanExecutor(IPlanExecutor):
         # Choose path
         path = getattr(self._settings, "HEALER_PATH", "deterministic")
         healed = None
+        # OTel Phase 1: trace heal attempts
+        _span_ctx = None
+        try:
+            from opentelemetry import trace as _trace
+
+            tracer = _trace.get_tracer("kaizen.engine.heal")
+            _span_ctx = tracer.start_as_current_span("heal.attempt")
+            _span_cm = _span_ctx.__enter__()
+            try:
+                _span_cm.set_attribute("tool", tool)
+                _span_cm.set_attribute("reason", failure_reason)
+            except Exception:
+                pass
+        except Exception:
+            _span_ctx = None
         if path == "llm" and self._llm is not None:
             # Attempt LLM first
             self._heal_attempts += 1
@@ -355,10 +380,36 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id})
         else:
             if self._healer is None:
+                # close span if opened
+                try:
+                    if _span_ctx is not None:
+                        _span_cm = getattr(_span_ctx, "__exit__", None)
+                        if callable(_span_cm):
+                            _span_ctx.__exit__(None, None, None)
+                except Exception:
+                    pass
                 return None
             self._heal_attempts += 1
             self._det_attempted = True
             healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id})
+
+        # close span with outcome
+        try:
+            if _span_ctx is not None:
+                ok = bool(healed and isinstance(healed, dict) and isinstance(healed.get("primary"), dict))
+                _span_cm = getattr(_span_ctx, "__enter__", None)
+                # _span_ctx is an active context manager; get current span to set attrs
+                from opentelemetry import trace as _trace
+
+                span = _trace.get_current_span()
+                try:
+                    span.set_attribute("strategy", "llm" if getattr(self, "_llm_attempted", False) else ("deterministic" if getattr(self, "_det_attempted", False) else "none"))
+                    span.set_attribute("success", ok)
+                except Exception:
+                    pass
+                _span_ctx.__exit__(None, None, None)
+        except Exception:
+            pass
         if not healed or not isinstance(healed, dict):
             return None
         primary = healed.get("primary")
