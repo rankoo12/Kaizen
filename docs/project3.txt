@@ -1,0 +1,44 @@
+            +--------------------------+
+            |  Orchestrator 🟢         |
+            |  - builds plan (det.)    |
+            |  - runs Deterministic    |
+            +-----+--------------------+
+                  |
+                  | Plan (validated JSON)
+                  v
++-----------------+--------------------+
+| DeterministicPlanExecutor 🟢         |
+| - resolve() + safety checks 🟢       |
+| - bounded waits/timeouts 🟢          |
+| - step/run spans & metrics 🟢        |
++-----------------+----------+---------+
+                  |          |
+                  |          | heal.attempt spans 🟢 (emitted points)
+                  v          v
+          +-------+----+   +-----------------------+
+          | Resolver   |   | SelectorHealer v1 ⏳  |
+          | (primary)  |   | - ranked fallbacks    |
+          | 🟢          |   | - uses LocatorProfile |
+          +------------+   |   P:9                 |
+                            +----------------------+
+
+LLM Planner path                                  Persistence
++----------------------------------+              +----------------------+
+| ILLMText adapter (Ollama) ⏳ P:10 |              | Artifacts on disk 🟢  |
+| Prompt templates ⏳ P:9           |              | LocatorProfile store  |
+| Plan JSON Schema ⏳ P:10          |              | (Mongo/Postgres) ⏳ P:9|
+| PlanValidator ⏳ P:10             |              +----------------------+
+| /api/plan/preview ⏳ P:10         |
++----------------------------------+
+
+Further learning & assist
++---------------------------+     +---------------------------+
+| Adaptive weights ⏳ P:6    |     | Visual assist (VLM) ⏳ P:4 |
+| (per-domain strategies)   |     | (flagged; rate-limited)   |
++---------------------------+     +---------------------------+
+
+Quality gate
++-----------------------------------------------+
+| Evaluation Harness (site corpus + breakages)  |
+| Nightly success@1/@3, heal-rate, TTR ⏳ P:8    |
++-----------------------------------------------+

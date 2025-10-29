@@ -1,0 +1,25 @@
++------------------+         +-------------------+
+|  Portal Frontend |  HTTP   |  Portal Backend   |
+|  (React/Next)    | <-----> |  (FastAPI/…)      |
+|        ⏳ P:5     |         |        ⏳ P:5      |
++---------+--------+         +---------+---------+
+          |                            |
+          v                            v
++---------+-----------------------------------------------+
+|     Engine API (Python + FastAPI)                     |
+|     🟢 /metrics (Prom scrape), 🟢 tracing middleware    |
+|     🟢 /api/queue (enqueue basic spec)                 |
+|     ⏳ /api/plan/preview (LLM plan check)  P:10        |
++---------+-------------------------+---------------------+
+          |                         |
+          | Enqueue/TestSpec JSON   | OTel exports
+          v                         v
++---------+-------------------------+---------------------+
+|         Engine Runner (Playwright)                      |
+|  🟢 deterministic executor (timeouts, safe clicks)      |
+|  🟢 snapshot & live modes                               |
+|  🟢 JSONL logs (trace_id)                               |
++---------+-------------------------+---------------------+
+          |                         |
+          v                         v
+   Target Website              🟢 logs/, snapshots/, reports/

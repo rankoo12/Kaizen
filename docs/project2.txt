@@ -1,0 +1,15 @@
+Engine (OTLP/HTTP + filelog) 🟢
+        |
+        v
++-------------------+
+| OTel Collector 🟢 |  receivers: otlp(http), filelog
++----+---------+----+
+     |         |
+     v         v
++----+--+   +--+------------------+
+|Jaeger|   |Prometheus (scrape)   |
+| 🟢    |   | 🟢                   |  <--- Grafana dashboards 🟢 basic
++------+   +-----------------------+
+                        |
+                        v
+             ⏳ Grafana: healing KPIs panels  P:7
