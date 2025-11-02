@@ -19,9 +19,14 @@ except Exception:
 _OTEL_METER = None
 _OTEL_STEP_HIST = None
 _OTEL_RUNS_FAILED = None
+_OTEL_HEAL_ATTEMPTS = None
+_OTEL_HEAL_SUCCESS = None
+_OTEL_PROFILE_HITS = None
+_OTEL_PROFILE_MISSES = None
 
 def _ensure_meter():
     global _OTEL_METER, _OTEL_STEP_HIST, _OTEL_RUNS_FAILED
+    global _OTEL_HEAL_ATTEMPTS, _OTEL_HEAL_SUCCESS, _OTEL_PROFILE_HITS, _OTEL_PROFILE_MISSES
     if not _OTEL_OK:
         return
     if _OTEL_METER is not None:
@@ -37,10 +42,31 @@ def _ensure_meter():
             name="kaizen_runs_failed_total",
             description="Total failed runs",
         )
+        # Healing KPIs
+        _OTEL_HEAL_ATTEMPTS = _OTEL_METER.create_counter(
+            name="kaizen_healer_attempts_total",
+            description="Total healer attempts",
+        )
+        _OTEL_HEAL_SUCCESS = _OTEL_METER.create_counter(
+            name="kaizen_healer_successes_total",
+            description="Total healer successes",
+        )
+        _OTEL_PROFILE_HITS = _OTEL_METER.create_counter(
+            name="kaizen_profile_hits_total",
+            description="Total profile hits during healing",
+        )
+        _OTEL_PROFILE_MISSES = _OTEL_METER.create_counter(
+            name="kaizen_profile_misses_total",
+            description="Total profile misses during healing",
+        )
     except Exception:
         _OTEL_METER = None
         _OTEL_STEP_HIST = None
         _OTEL_RUNS_FAILED = None
+        _OTEL_HEAL_ATTEMPTS = None
+        _OTEL_HEAL_SUCCESS = None
+        _OTEL_PROFILE_HITS = None
+        _OTEL_PROFILE_MISSES = None
 
 class StepRun(dict):
     """Serializable step record for reports/artifacts."""
@@ -125,6 +151,32 @@ class InMemoryRunReporter(IReporter):
         cur = self._open.get(str(run_id))
         if cur is not None:
             cur["by_tool"][tool][reason] += 1
+
+    # Optional generic counter interface used by executor
+    def increment(self, name: str, tags: dict | None = None) -> None:
+        if not _OTEL_OK:
+            return
+        try:
+            _ensure_meter()
+            attrs = tags or {}
+            if name == "healer_attempts_total" and _OTEL_HEAL_ATTEMPTS is not None:
+                _OTEL_HEAL_ATTEMPTS.add(1, attributes=attrs)
+            elif name == "healer_successes_total" and _OTEL_HEAL_SUCCESS is not None:
+                _OTEL_HEAL_SUCCESS.add(1, attributes=attrs)
+            elif name == "profile_hits_total" and _OTEL_PROFILE_HITS is not None:
+                _OTEL_PROFILE_HITS.add(1, attributes=attrs)
+            elif name == "profile_misses_total" and _OTEL_PROFILE_MISSES is not None:
+                _OTEL_PROFILE_MISSES.add(1, attributes=attrs)
+            # executor_step_total and others can be ignored here (we track via on_step)
+        except Exception:
+            pass
+
+    # Back-compat alias
+    def on_metric(self, name: str, tags: dict | None = None) -> None:
+        try:
+            self.increment(name, tags)
+        except Exception:
+            pass
 
     def on_run_finish(self, run_id: str, stats: dict) -> None:
         cur = self._open.pop(str(run_id), None)
@@ -273,6 +325,19 @@ class JsonlTailReporter(IReporter):
 
     def on_finish(self, run_id: str) -> None:
         pass
+
+    # Generic counter interface (forward to OTel)
+    def increment(self, name: str, tags: dict | None = None) -> None:
+        try:
+            InMemoryRunReporter.increment(self, name, tags)
+        except Exception:
+            pass
+
+    def on_metric(self, name: str, tags: dict | None = None) -> None:
+        try:
+            self.increment(name, tags)
+        except Exception:
+            pass
 
     def _process_event(self, ev: dict) -> None:
         # Update in-memory only; do not write while tailing
