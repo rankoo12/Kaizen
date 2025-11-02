@@ -73,45 +73,59 @@ class PostgresStorage:
 
     # ---- Locator Profiles ----
     def save_locator_profile(self, *, domain: Optional[str], tool: str, target_signature: dict, selector: dict) -> None:
+        sel_json = json.dumps({"type": selector.get("type"), "value": selector.get("value")})
+        sig_json = json.dumps(target_signature or {})
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO locator_profiles(domain, tool, target_signature, selector, hits)
-                    VALUES (%s, %s, %s::jsonb, %s::jsonb, 1)
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (domain, tool, json.dumps(target_signature), json.dumps(selector)),
-                )
-
-                # naive merge by tool + selector equality
+                # 1) Try to update existing by (domain, tool, selector)
                 cur.execute(
                     """
                     UPDATE locator_profiles
                     SET hits = hits + 1, last_seen = NOW()
-                    WHERE tool=%s AND selector=%s::jsonb
+                    WHERE (domain IS NOT DISTINCT FROM %s) AND tool=%s AND selector=%s::jsonb
                     """,
-                    (tool, json.dumps(selector)),
+                    (domain, tool, sel_json),
+                )
+                if cur.rowcount and cur.rowcount > 0:
+                    return
+                # 2) Insert new
+                cur.execute(
+                    """
+                    INSERT INTO locator_profiles(domain, tool, target_signature, selector, hits)
+                    VALUES (%s, %s, %s::jsonb, %s::jsonb, 1)
+                    """,
+                    (domain, tool, sig_json, sel_json),
                 )
 
     def find_locator_profile(self, *, domain: Optional[str], tool: str, target_signature: dict) -> Optional[dict]:
-        # Prefer signature match when provided, fallback to best recent by tool.
+        # Prefer domain-scoped exact/signature matches; fallback to global; rank by specificity and usage
         with self._conn() as conn:
             with conn.cursor() as cur:
+                sig = json.dumps(target_signature or {})
                 if target_signature:
                     cur.execute(
                         """
                         SELECT selector FROM locator_profiles
-                        WHERE tool=%s AND target_signature @> %s::jsonb
-                        ORDER BY hits DESC, last_seen DESC
+                        WHERE tool=%s AND ((domain IS NOT DISTINCT FROM %s) OR domain IS NULL)
+                          AND target_signature @> %s::jsonb
+                        ORDER BY (CASE WHEN domain IS NOT DISTINCT FROM %s THEN 1 ELSE 0 END) DESC,
+                                 jsonb_object_length(target_signature) DESC,
+                                 hits DESC,
+                                 last_seen DESC
                         LIMIT 1
                         """,
-                        (tool, json.dumps(target_signature)),
+                        (tool, domain, sig, domain),
                     )
                 else:
                     cur.execute(
-                        "SELECT selector FROM locator_profiles WHERE tool=%s ORDER BY hits DESC, last_seen DESC LIMIT 1",
-                        (tool,),
+                        """
+                        SELECT selector FROM locator_profiles
+                        WHERE tool=%s AND ((domain IS NOT DISTINCT FROM %s) OR domain IS NULL)
+                        ORDER BY (CASE WHEN domain IS NOT DISTINCT FROM %s THEN 1 ELSE 0 END) DESC,
+                                 hits DESC, last_seen DESC
+                        LIMIT 1
+                        """,
+                        (tool, domain, domain),
                     )
                 row = cur.fetchone()
                 if row and row[0]:

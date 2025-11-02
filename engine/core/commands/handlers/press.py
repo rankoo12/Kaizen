@@ -11,5 +11,9 @@ class PressHandler(IActionHandler):
 
     def execute(self, tool_call: dict, ctx: ExecCtx) -> StepResult:
         key = tool_call.get("args", {}).get("key")
-        asyncio.run(self._browser.press(key))
+        runner = getattr(self._browser, "run_coro", None)
+        if callable(runner):
+            runner(self._browser.press(key))
+        else:
+            asyncio.run(self._browser.press(key))
         return StepResult(ok=True, reason=None)

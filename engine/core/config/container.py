@@ -50,14 +50,93 @@ class StdoutLogger:
 
 
 class InMemoryStorage:
+    def __init__(self) -> None:
+        self._runs: dict[str, dict] = {}
+        # profiles: list of dicts with keys: domain, tool, target_signature, selector, hits, last_seen
+        self._profiles: list[dict] = []
+
     def start_run(self, test_id):
-        return f"run-{test_id}"
+        rid = f"run-{test_id}"
+        self._runs[rid] = {"test_id": test_id, "started": True}
+        return rid
 
     def record_step(self, step):
-        pass
+        return None
 
     def finish_run(self, run_id):
-        pass
+        rec = self._runs.get(str(run_id))
+        if rec is not None:
+            rec["finished"] = True
+
+    # ---- Minimal Locator Profiles (in-memory) ----
+    def save_locator_profile(self, *, domain, tool: str, target_signature: dict, selector: dict) -> None:
+        import time as _time
+
+        # normalize selector dict to minimal form
+        sel_type = selector.get("type") if isinstance(selector, dict) else None
+        sel_value = selector.get("value") if isinstance(selector, dict) else None
+        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+            return
+        norm_sel = {"type": sel_type, "value": sel_value}
+        now = _time.time()
+        # dedupe by domain+tool+selector
+        for row in self._profiles:
+            if row["tool"] == tool and row.get("domain") == domain and row["selector"] == norm_sel:
+                row["hits"] = int(row.get("hits", 0)) + 1
+                row["last_seen"] = now
+                return
+        self._profiles.append({
+            "domain": domain,
+            "tool": tool,
+            "target_signature": dict(target_signature or {}),
+            "selector": norm_sel,
+            "hits": 1,
+            "last_seen": now,
+        })
+
+    def _sig_contains(self, sup: dict, sub: dict) -> bool:
+        try:
+            for k, v in (sub or {}).items():
+                if k not in sup:
+                    return False
+                if sup[k] != v:
+                    return False
+            return True
+        except Exception:
+            return False
+
+    def find_locator_profile(self, *, domain, tool: str, target_signature: dict):
+        # Prefer domain match then global; prefer sig containment match; order by specificity then hits then last_seen
+        matches = []
+        for row in self._profiles:
+            if row["tool"] != tool:
+                continue
+            dom_score = 1 if (row.get("domain") and row.get("domain") == domain) else (0 if row.get("domain") is None else -1)
+            sig = row.get("target_signature") or {}
+            if target_signature and self._sig_contains(sig, target_signature):
+                # Prefer more specific stored signatures (row with more fields)
+                try:
+                    spec = len(sig)
+                except Exception:
+                    spec = 0
+                matches.append((2 + dom_score, spec, int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+            elif not target_signature:
+                # allow best-by-tool fallback
+                matches.append((dom_score, 0, int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+        if not matches:
+            # try global if we didn't match a scoped domain
+            for row in self._profiles:
+                if row["tool"] != tool:
+                    continue
+                if target_signature and self._sig_contains(row.get("target_signature") or {}, target_signature):
+                    matches.append((0, len(target_signature), int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+                elif not target_signature:
+                    matches.append((0, 0, int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+        if not matches:
+            return None
+        matches.sort(key=lambda t: (t[0], t[1], t[2], t[3]), reverse=True)
+        row = matches[0][-1]
+        return dict(row.get("selector") or {})
 
 
 class Container(containers.DeclarativeContainer):

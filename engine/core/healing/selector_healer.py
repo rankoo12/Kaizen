@@ -27,7 +27,8 @@ class DeterministicHealer:
             if self._storage is not None:
                 find = getattr(self._storage, "find_locator_profile", None)
                 if callable(find):
-                    prof = find(domain=None, tool=str(context.get("tool", "")), target_signature=failure.get("target") or {})
+                    dom = context.get("domain") if isinstance(context, dict) else None
+                    prof = find(domain=dom, tool=str(context.get("tool", "")), target_signature=failure.get("target") or {})
                     if isinstance(prof, dict) and prof.get("type") and prof.get("value"):
                         return {
                             "primary": {"type": prof.get("type"), "value": prof.get("value"), "visible": True, "enabled": True},
@@ -62,10 +63,9 @@ class DeterministicHealer:
         # 3) Text fallback (weak)
         text = target.get("text")
         if isinstance(text, str) and text:
-            # naive contains selector; real impl should use resolver
-            sel = f"*:contains('{text}')"
+            # Prefer Playwright text selector in stub form
             return {
-                "primary": {"type": "css", "value": sel, "visible": True, "enabled": True},
+                "primary": {"type": "text", "value": text, "visible": True, "enabled": True},
                 "fallbacks": [],
                 "confidence": 0.2,
                 "reason": "text_fallback",

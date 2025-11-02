@@ -14,5 +14,9 @@ class ClickHandler(IActionHandler):
         resolved = meta.get("resolved")
         if resolved is None:
             return StepResult(ok=False, reason="no_resolved_target")
-        asyncio.run(self._browser.click(resolved))
+        runner = getattr(self._browser, "run_coro", None)
+        if callable(runner):
+            runner(self._browser.click(resolved))
+        else:
+            asyncio.run(self._browser.click(resolved))
         return StepResult(ok=True, reason=None)

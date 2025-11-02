@@ -12,5 +12,9 @@ class OpenHandler(IActionHandler):
     def execute(self, tool_call: dict, ctx: ExecCtx) -> StepResult:
         url = tool_call.get("args", {}).get("url")
         # Executor already guarded URL policy; just open
-        asyncio.run(self._browser.open(url))
+        runner = getattr(self._browser, "run_coro", None)
+        if callable(runner):
+            runner(self._browser.open(url))
+        else:
+            asyncio.run(self._browser.open(url))
         return StepResult(ok=True, reason=None)
