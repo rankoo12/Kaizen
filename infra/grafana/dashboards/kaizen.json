@@ -51,6 +51,43 @@
         {"expr": "kaizen_queue_depth{state=\"queued\"}", "legendFormat": "queued", "refId": "A"},
         {"expr": "kaizen_queue_depth{state=\"running\"}", "legendFormat": "running", "refId": "B"}
       ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Healer Attempts/Successes (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum by (strategy) (rate(kaizen_healer_attempts_total[5m]))",
+          "legendFormat": "attempts {{strategy}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(kaizen_healer_successes_total[5m]))",
+          "legendFormat": "successes",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Profile Hits/Misses (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {"expr": "sum(rate(kaizen_profile_hits_total[5m]))", "legendFormat": "hits", "refId": "A"},
+        {"expr": "sum(rate(kaizen_profile_misses_total[5m]))", "legendFormat": "misses", "refId": "B"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Profile Hit Rate (1h)",
+      "gridPos": {"h": 8, "w": 4, "x": 12, "y": 24},
+      "targets": [
+        {
+          "expr": "sum(increase(kaizen_profile_hits_total[1h])) / clamp_min(sum(increase(kaizen_profile_hits_total[1h])) + sum(increase(kaizen_profile_misses_total[1h])), 1)",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

@@ -364,6 +364,16 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 # best-effort in case reporter signature differs
                 metric("executor_step_total")
 
+    def _increment(self, name: str, tags: dict | None = None) -> None:
+        if not self._reporter:
+            return
+        inc = getattr(self._reporter, "increment", None) or getattr(self._reporter, "on_metric", None)
+        if callable(inc):
+            try:
+                inc(name, tags or {})
+            except Exception:
+                pass
+
     def _try_heal(
         self,
         tool: str,
@@ -397,11 +407,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
             # Attempt LLM first
             self._heal_attempts += 1
             self._llm_attempted = True
+            self._increment("healer_attempts_total", {"strategy": "llm", "tool": tool})
             healed = self._llm_propose(target, failure_reason)
             if healed is None and self._healer is not None:
                 # fallback to deterministic heuristics
                 self._heal_attempts += 1
                 self._det_attempted = True
+                self._increment("healer_attempts_total", {"strategy": "deterministic", "tool": tool})
                 healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id, "domain": getattr(self, "_current_domain", None)})
         else:
             if self._healer is None:
@@ -416,6 +428,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 return None
             self._heal_attempts += 1
             self._det_attempted = True
+            self._increment("healer_attempts_total", {"strategy": "deterministic", "tool": tool})
             healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id, "domain": getattr(self, "_current_domain", None)})
 
         # close span with outcome
@@ -458,6 +471,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
             res.signature = self._build_signature(primary)
         if isinstance(res, StepResult) and res.ok:
             self._heal_successes += 1
+            self._increment("healer_successes_total", {"tool": tool})
             # capture per-step enrichment
             self._last_heal_extra = {
                 "healed": True,
@@ -472,8 +486,10 @@ class DeterministicPlanExecutor(IPlanExecutor):
             try:
                 if isinstance(healed, dict) and healed.get("reason") == "profile_hit":
                     self._profile_hits += 1
+                    self._increment("profile_hits_total", {"tool": tool})
                 elif getattr(self, "_storage", None) is not None:
                     self._profile_misses += 1
+                    self._increment("profile_misses_total", {"tool": tool})
             except Exception:
                 pass
         return res
