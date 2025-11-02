@@ -18,7 +18,25 @@ class DeterministicHealer:
     Returned structure matches LocatorCandidates with just a primary.
     """
 
+    def __init__(self, storage: Any | None = None) -> None:
+        self._storage = storage
+
     def heal(self, failure: Dict[str, Any], context: Dict[str, Any]) -> Optional[LocatorCandidates]:
+        # 0) Profile-assisted selector (if available)
+        try:
+            if self._storage is not None:
+                find = getattr(self._storage, "find_locator_profile", None)
+                if callable(find):
+                    prof = find(domain=None, tool=str(context.get("tool", "")), target_signature=failure.get("target") or {})
+                    if isinstance(prof, dict) and prof.get("type") and prof.get("value"):
+                        return {
+                            "primary": {"type": prof.get("type"), "value": prof.get("value"), "visible": True, "enabled": True},
+                            "fallbacks": [],
+                            "confidence": 0.7,
+                            "reason": "profile_hit",
+                        }
+        except Exception:
+            pass
         target = failure.get("target") or {}
         # 1) Direct CSS provided → generalize
         css = target.get("css")

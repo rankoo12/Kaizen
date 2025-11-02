@@ -71,6 +71,9 @@ from engine.api.routes.runs import register_run_routes
 from engine.api.routes.suites import register_suite_routes
 from engine.api.routes.queue import register_queue_routes
 from engine.api.routes.artifacts import router as artifacts_router
+from engine.api.routes.admin import router as admin_router
+from engine.api.routes.profiles import router as profiles_router
+from engine.api.routes.plan import router as plan_router
 from engine.core.config.container import Container
 
 
@@ -147,6 +150,9 @@ def create_app(resolver=None) -> FastAPI:
     register_resolve_routes(app, resolver)
     app.include_router(system_router, prefix="/api")
     app.include_router(metrics_router, prefix="/api")
+    app.include_router(plan_router)
+    app.include_router(admin_router)
+    app.include_router(profiles_router)
     app.include_router(artifacts_router)
     # Register run endpoints using the orchestrator
     try:

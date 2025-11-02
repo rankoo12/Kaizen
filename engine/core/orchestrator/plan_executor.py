@@ -37,6 +37,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         clock: IClock | None = None,
         settings: Settings | None = None,
         healer: ISelectorHealer | None = None,
+        storage: Any | None = None,
         llm: ILLMText | None = None,
     ):
         self._browser = browser
@@ -49,6 +50,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._max_attempts = 50
         self._healer = healer
         self._llm = llm
+        self._storage = storage
 
     def execute(self, plan: Plan, *, ctx: ExecCtx) -> List[StepResult]:
         # reset heal stats per execution
@@ -116,6 +118,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 res = handler.execute(call, ctx)
                 results.append(res)
                 self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
+                try:
+                    if isinstance(res, StepResult) and res.ok and resolved is not None:
+                        self._maybe_save_profile(tool, res, resolved)
+                except Exception:
+                    pass
                 self._emit_metric(tool, res)
                 continue
 
@@ -216,6 +223,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     res.signature = self._build_signature(resolved)
                 results.append(res)
                 self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
+                try:
+                    if isinstance(res, StepResult) and res.ok and resolved is not None:
+                        self._maybe_save_profile(tool, res, resolved)
+                except Exception:
+                    pass
                 self._emit_metric(tool, res)
                 continue
 
@@ -433,7 +445,26 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 "healer": ("llm" if self._llm_attempted else ("deterministic" if self._det_attempted else "none")),
                 "confidence": float(healed.get("confidence", 0.0)) if isinstance(healed, dict) else 0.0,
             }
+            try:
+                self._maybe_save_profile(tool, res, primary)
+            except Exception:
+                pass
         return res
+
+    def _maybe_save_profile(self, tool: str, res: StepResult, candidate: Any) -> None:
+        if not getattr(self, "_storage", None):
+            return
+        if not isinstance(candidate, dict):
+            return
+        sel_type = candidate.get("type")
+        sel_value = candidate.get("value")
+        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+            return
+        selector = {"type": sel_type, "value": sel_value}
+        target_signature = res.signature or {}
+        save = getattr(self._storage, "save_locator_profile", None)
+        if callable(save):
+            save(domain=None, tool=tool, target_signature=target_signature, selector=selector)
 
     def _llm_propose(self, target: dict, reason: str) -> dict | None:
         try:
