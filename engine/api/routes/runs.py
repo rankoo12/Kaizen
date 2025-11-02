@@ -1,6 +1,6 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 
 import engine.core.reporting.reporter as reporter_mod
 
@@ -17,6 +17,92 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
     """
 
     router = APIRouter(prefix="/api", tags=["runs"])
+
+    @router.get("/runs")
+    async def list_runs(
+        mode: str | None = Query(default=None, description="Filter by mode: live|snapshot"),
+        limit: int = Query(default=50, ge=1, le=200),
+        since: float | None = Query(default=None, description="Unix epoch seconds; include runs started at or after"),
+        offset: int = Query(default=0, ge=0, description="Offset for simple pagination"),
+    ):
+        """List recent runs from reporter; best-effort DB fallback when available.
+
+        - Sorted by started (desc) where available; otherwise preserve insertion order.
+        - Mode filter applies to in-memory reporter data.
+        - "since" filter compares against reporter "started" timestamps when present, or DB started_at.
+        """
+        rep = reporter_mod.RUN_REPORTER
+        runs: List[dict] = []
+
+        # Prefer in-memory reporter which has richer rollups
+        try:
+            all_runs = list(getattr(rep, "_runs", []) or [])
+            # sort desc by started if present
+            try:
+                all_runs.sort(key=lambda r: float(r.get("started", 0) or 0), reverse=True)
+            except Exception:
+                pass
+            # apply filters
+            if mode:
+                m = str(mode).lower()
+                all_runs = [r for r in all_runs if str(r.get("mode") or "").lower() == m]
+            if since is not None:
+                try:
+                    s = float(since)
+                    all_runs = [r for r in all_runs if float(r.get("started", 0) or 0) >= s]
+                except Exception:
+                    pass
+            total = len(all_runs)
+            window = all_runs[offset : offset + limit]
+            runs = [
+                {
+                    "run_id": r.get("run_id"),
+                    "mode": r.get("mode"),
+                    "started": r.get("started"),
+                    "stats": r.get("stats", {}),
+                    "by_tool": r.get("by_tool", {}),
+                }
+                for r in window
+            ]
+            return {"runs": runs, "total": total, "offset": offset, "limit": limit}
+        except Exception:
+            runs = []
+
+        # Fallback: best-effort DB query when reporter not available
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+            if hasattr(st, "_conn"):
+                args: list[Any] = []
+                sql = (
+                    "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats "
+                    "FROM runs"
+                )
+                where = []
+                if since is not None:
+                    where.append("started_at >= to_timestamp(%s)")
+                    args.append(float(since))
+                if where:
+                    sql += " WHERE " + " AND ".join(where)
+                sql += " ORDER BY started_at DESC LIMIT %s OFFSET %s"
+                args.extend([int(limit), int(offset)])
+                out = []
+                with st._conn() as conn:  # type: ignore[attr-defined]
+                    with conn.cursor() as cur:
+                        cur.execute(sql, tuple(args))
+                        for row in cur.fetchall():
+                            out.append(
+                                {
+                                    "run_id": row[0],
+                                    "mode": None,
+                                    "started": float(row[2]) if row[2] is not None else None,
+                                    "stats": row[4] or {},
+                                    "by_tool": {},
+                                }
+                            )
+                return {"runs": out, "total": len(out), "offset": offset, "limit": limit}
+        except Exception:
+            pass
+        return {"runs": [], "total": 0, "offset": offset, "limit": limit}
 
     @router.post("/runs")
     async def create_run(body: Dict[str, Any]):
