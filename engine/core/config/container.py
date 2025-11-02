@@ -12,7 +12,7 @@ from engine.core.reporting.reporter import IReporter, RUN_REPORTER, InMemoryRunR
 from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
-from engine.core.healing.selector_healer import DeterministicHealer
+from engine.core.llm.ollama_text import OllamaTextAdapter
 
 
 # Temporary stub for planner until integrated with real parsing logic
@@ -102,8 +102,10 @@ class Container(containers.DeclarativeContainer):
             try:
                 from engine.core.storage.postgres import PostgresStorage  # lazy import
 
+                print("[storage] initializing PostgresStorage")
                 return PostgresStorage(dsn)
-            except Exception:
+            except Exception as e:
+                print(f"[storage] PostgresStorage init failed, falling back to memory: {e}")
                 return InMemoryStorage()
         return InMemoryStorage()
 
@@ -134,7 +136,11 @@ class Container(containers.DeclarativeContainer):
     )
 
     # Deterministic plan executor (stub) and high-level orchestrator
-    healer = providers.Callable(lambda s: DeterministicHealer() if getattr(s, "HEALER_ENABLED", False) else None, settings)
+    healer = providers.Callable(
+        lambda s, st: DeterministicHealer(storage=st) if getattr(s, "HEALER_ENABLED", False) else None,
+        settings,
+        storage,
+    )
     plan_executor = providers.Factory(
         DeterministicPlanExecutor,
         browser=playwright_browser,
@@ -144,6 +150,19 @@ class Container(containers.DeclarativeContainer):
         reporter=reporter,
         settings=settings,
         healer=healer,
+        storage=storage,
+    )
+
+    # Optional LLM adapter for planner preview and future planner path
+    llm_text = providers.Callable(
+        lambda s: OllamaTextAdapter(
+            getattr(s, "OLLAMA_BASE_URL", "http://ollama:11434"),
+            getattr(s, "OLLAMA_MODEL", "llama3.1"),
+            timeout=float(getattr(s, "LLM_TIMEOUT_SECONDS", 10.0) or 10.0),
+        )
+        if bool(getattr(s, "LLM_ENABLED", False))
+        else None,
+        settings,
     )
 
     orchestrator = providers.Factory(
@@ -154,6 +173,7 @@ class Container(containers.DeclarativeContainer):
         storage=storage,
         log=logger,
         reporter=reporter,
+        llm=llm_text,
     )
 
     live_runner = providers.Factory(

@@ -50,6 +50,59 @@ class ElementResolver:
             "bbox": best.get("bbox"),
         }
 
+    # Minimal live find() for interactive tools. This stub does not query a DOM.
+    # It returns a synthetic candidate using provided target hints so execution
+    # paths can proceed and profiles can be recorded.
+    def find(self, target: dict) -> list[Any]:
+        t = target or {}
+        # Prefer explicit CSS if present
+        css = t.get("css") if isinstance(t.get("css"), str) else None
+        if css:
+            return [
+                {
+                    "type": "css",
+                    "value": css,
+                    "visible": True,
+                    "enabled": True,
+                    "tag": "*",
+                    "classes": [],
+                }
+            ]
+        # Fallback to id/testid/text heuristics to synthesize a selector
+        attrs = t if isinstance(t, dict) else {}
+        if attrs.get("id"):
+            return [
+                {
+                    "type": "id",
+                    "value": attrs.get("id"),
+                    "visible": True,
+                    "enabled": True,
+                }
+            ]
+        if attrs.get("testid"):
+            return [
+                {
+                    "type": "testid",
+                    "value": attrs.get("testid"),
+                    "visible": True,
+                    "enabled": True,
+                }
+            ]
+        text = attrs.get("text")
+        if isinstance(text, str) and text:
+            # pseudo contains()
+            return [
+                {
+                    "type": "css",
+                    "value": f"*:contains('{text}')",
+                    "visible": True,
+                    "enabled": True,
+                    "tag": "*",
+                    "classes": [],
+                }
+            ]
+        return []
+
     @staticmethod
     def _to_locator(candidate: dict) -> Locator:
         # Prefer testid, then id, then role+text fallback

@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     PG_DSN: str | None = Field(default=None, description="Postgres DSN, e.g. postgresql+psycopg://user:pass@host:5432/db")
     STORAGE_BACKEND: Literal["auto", "in_memory", "postgres"] = Field(default="auto")
 
+    # LLM planner (disabled by default)
+    LLM_ENABLED: bool = Field(default=False, description="Enable LLM planner/preview endpoints")
+    OLLAMA_BASE_URL: str = Field(default="http://ollama:11434", description="Ollama base URL")
+    OLLAMA_MODEL: str = Field(default="llama3.1", description="Ollama model name")
+    LLM_TIMEOUT_SECONDS: float = Field(default=10.0, description="Timeout for LLM calls (seconds)")
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):

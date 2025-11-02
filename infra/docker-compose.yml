@@ -1,3 +1,5 @@
+x-default-limits: &default-limits
+  mem_limit: 0.3g
 services:
   postgres:
     image: postgres:16
@@ -10,17 +12,21 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ../.pg-data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kaizen -d kaizen"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 15s
+    networks:
+      - kaizen
   engine-api:
     depends_on:
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     image: mcr.microsoft.com/playwright/python:v1.55.0-jammy
     container_name: kaizen-engine-api
     working_dir: /app
@@ -70,9 +76,6 @@ services:
       start_period: 25s
 
     restart: unless-stopped
-    depends_on:
-      otel-collector:
-        condition: service_started
     networks:
       - kaizen
   engine-runner:
@@ -213,3 +216,6 @@ services:
 networks:
   kaizen:
     driver: bridge
+
+volumes:
+  pgdata: {}
