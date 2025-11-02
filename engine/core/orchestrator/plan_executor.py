@@ -51,6 +51,9 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._healer = healer
         self._llm = llm
         self._storage = storage
+        self._current_domain: str | None = None
+        self._profile_hits = 0
+        self._profile_misses = 0
 
     def execute(self, plan: Plan, *, ctx: ExecCtx) -> List[StepResult]:
         # reset heal stats per execution
@@ -59,6 +62,8 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._healer_mode_used = "none"
         self._llm_attempted = False
         self._det_attempted = False
+        self._profile_hits = 0
+        self._profile_misses = 0
 
         results: List[StepResult] = []
         for idx, call in enumerate(plan):
@@ -118,11 +123,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 res = handler.execute(call, ctx)
                 results.append(res)
                 self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
+                # Track current domain for subsequent profile save/lookup
                 try:
-                    if isinstance(res, StepResult) and res.ok and resolved is not None:
-                        self._maybe_save_profile(tool, res, resolved)
+                    if isinstance(url, str):
+                        self._current_domain = self._extract_domain(url)
                 except Exception:
-                    pass
+                    self._current_domain = None
                 self._emit_metric(tool, res)
                 continue
 
@@ -246,7 +252,14 @@ class DeterministicPlanExecutor(IPlanExecutor):
         attempts = int(getattr(self, "_heal_attempts", 0) or 0)
         successes = int(getattr(self, "_heal_successes", 0) or 0)
         rate = successes / attempts if attempts else 0.0
-        return {"healer": mode, "heal_attempts": attempts, "heal_successes": successes, "healed_rate": rate}
+        return {
+            "healer": mode,
+            "heal_attempts": attempts,
+            "heal_successes": successes,
+            "healed_rate": rate,
+            "profile_hits": int(getattr(self, "_profile_hits", 0) or 0),
+            "profile_misses": int(getattr(self, "_profile_misses", 0) or 0),
+        }
 
     def _now_ms(self) -> int:
         if self._clock is not None:
@@ -389,7 +402,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 # fallback to deterministic heuristics
                 self._heal_attempts += 1
                 self._det_attempted = True
-                healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id})
+                healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id, "domain": getattr(self, "_current_domain", None)})
         else:
             if self._healer is None:
                 # close span if opened
@@ -403,7 +416,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 return None
             self._heal_attempts += 1
             self._det_attempted = True
-            healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id})
+            healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id, "domain": getattr(self, "_current_domain", None)})
 
         # close span with outcome
         try:
@@ -423,6 +436,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
         except Exception:
             pass
         if not healed or not isinstance(healed, dict):
+            # Count a profile miss when healing attempted without a profile hit
+            try:
+                if getattr(self, "_storage", None) is not None:
+                    self._profile_misses += 1
+            except Exception:
+                pass
             return None
         primary = healed.get("primary")
         if not isinstance(primary, dict):
@@ -449,6 +468,14 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 self._maybe_save_profile(tool, res, primary)
             except Exception:
                 pass
+            # Profile KPIs: count hits when healer used a stored profile
+            try:
+                if isinstance(healed, dict) and healed.get("reason") == "profile_hit":
+                    self._profile_hits += 1
+                elif getattr(self, "_storage", None) is not None:
+                    self._profile_misses += 1
+            except Exception:
+                pass
         return res
 
     def _maybe_save_profile(self, tool: str, res: StepResult, candidate: Any) -> None:
@@ -464,7 +491,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         target_signature = res.signature or {}
         save = getattr(self._storage, "save_locator_profile", None)
         if callable(save):
-            save(domain=None, tool=tool, target_signature=target_signature, selector=selector)
+            save(domain=getattr(self, "_current_domain", None), tool=tool, target_signature=target_signature, selector=selector)
 
     def _llm_propose(self, target: dict, reason: str) -> dict | None:
         try:
@@ -506,5 +533,17 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 conf = 0.5
             conf = max(0.0, min(1.0, conf))
             return {"primary": primary, "fallbacks": norm_fallbacks, "confidence": conf}
+        except Exception:
+            return None
+
+    def _extract_domain(self, url: str) -> str | None:
+        try:
+            from urllib.parse import urlparse
+
+            u = urlparse(url)
+            host = u.hostname
+            if not host:
+                return None
+            return host.lower()
         except Exception:
             return None

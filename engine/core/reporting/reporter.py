@@ -186,6 +186,8 @@ class InMemoryRunReporter(IReporter):
         reasons: Dict[str, int] = defaultdict(int)
         heal_attempts = 0
         heal_successes = 0
+        profile_hits = 0
+        profile_misses = 0
         planner_usage: Dict[str, int] = defaultdict(int)
         planner_fallbacks = 0
         modes: Dict[str, int] = defaultdict(int)
@@ -196,6 +198,8 @@ class InMemoryRunReporter(IReporter):
                 reasons[k] += int(v)
             heal_attempts += int(st.get("heal_attempts", 0) or 0)
             heal_successes += int(st.get("heal_successes", 0) or 0)
+            profile_hits += int(st.get("profile_hits", 0) or 0)
+            profile_misses += int(st.get("profile_misses", 0) or 0)
             planner = st.get("planner")
             if planner:
                 planner_usage[str(planner)] += 1
@@ -213,6 +217,8 @@ class InMemoryRunReporter(IReporter):
             "heal_attempts": heal_attempts,
             "heal_successes": heal_successes,
             "healed_rate": healed_rate,
+            "profile_hits": profile_hits,
+            "profile_misses": profile_misses,
             "planner_usage": dict(planner_usage),
             "planner_fallbacks": planner_fallbacks,
             "modes": dict(modes),

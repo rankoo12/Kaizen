@@ -45,6 +45,7 @@ def list_profiles(tool: str | None = Query(default=None), limit: int = Query(def
 def lookup_profile(body: Dict[str, Any]):
     tool = (body or {}).get("tool")
     sig = (body or {}).get("target_signature") or {}
+    domain = (body or {}).get("domain")
     if not tool:
         raise HTTPException(status_code=400, detail="'tool' is required")
     c = Container()
@@ -52,5 +53,5 @@ def lookup_profile(body: Dict[str, Any]):
     find = getattr(st, "find_locator_profile", None)
     if not callable(find):
         return {"profile": None}
-    prof = find(domain=None, tool=str(tool), target_signature=dict(sig))
+    prof = find(domain=domain, tool=str(tool), target_signature=dict(sig))
     return {"profile": prof}

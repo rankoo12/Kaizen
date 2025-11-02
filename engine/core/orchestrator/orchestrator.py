@@ -159,6 +159,8 @@ class EngineOrchestrator(IOrchestrator):
                 "heal_attempts": heal_stats.get("heal_attempts", 0),
                 "heal_successes": heal_stats.get("heal_successes", 0),
                 "healed_rate": max(0.0, min(1.0, float(heal_stats.get("healed_rate", 0.0) or 0.0))),
+                "profile_hits": int(heal_stats.get("profile_hits", 0) or 0),
+                "profile_misses": int(heal_stats.get("profile_misses", 0) or 0),
                 "redactions": [],
             }
             self._reporter.on_run_finish(run_id, stats)
@@ -218,12 +220,23 @@ class EngineOrchestrator(IOrchestrator):
             if not text or not isinstance(text, str):
                 continue
             if planner_path == "llm" and self._llm is not None:
+                # Use strict JSON-only prompt and validate; fallback to glue on any failure
                 try:
                     import json
+                    from engine.core.llm.plan_prompt import build_planner_prompt
 
-                    raw = self._llm.ask(text)
-                    calls = json.loads(raw)
-                    # allow single object or list
+                    prompt = build_planner_prompt(text, context=None)
+                    raw = self._llm.ask(prompt)
+                    try:
+                        calls = json.loads(raw)
+                    except Exception:
+                        # heuristic: locate first '[' and last ']'
+                        start = raw.find("[")
+                        end = raw.rfind("]") + 1
+                        if start >= 0 and end > start:
+                            calls = json.loads(raw[start:end])
+                        else:
+                            raise
                     calls_list = calls if isinstance(calls, list) else [calls]
                     self._validate(calls_list)
                     plan.extend(calls_list)
@@ -277,6 +290,8 @@ class EngineOrchestrator(IOrchestrator):
             "heal_attempts": heal_stats.get("heal_attempts", 0),
             "heal_successes": heal_stats.get("heal_successes", 0),
             "healed_rate": heal_stats.get("healed_rate", 0.0),
+            "profile_hits": int(heal_stats.get("profile_hits", 0) or 0),
+            "profile_misses": int(heal_stats.get("profile_misses", 0) or 0),
         }
         if self._reporter:
             self._reporter.on_run_finish(run_id, stats)

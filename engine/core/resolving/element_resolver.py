@@ -90,11 +90,23 @@ class ElementResolver:
             ]
         text = attrs.get("text")
         if isinstance(text, str) and text:
-            # pseudo contains()
+            # Special-case common control: 'input' -> generic input CSS
+            if text.strip().lower() == "input":
+                return [
+                    {
+                        "type": "css",
+                        "value": "input",
+                        "visible": True,
+                        "enabled": True,
+                        "tag": "input",
+                        "classes": [],
+                    }
+                ]
+            # Otherwise prefer Playwright text selector in stub form
             return [
                 {
-                    "type": "css",
-                    "value": f"*:contains('{text}')",
+                    "type": "text",
+                    "value": text,
                     "visible": True,
                     "enabled": True,
                     "tag": "*",

@@ -57,3 +57,30 @@ def test_metrics_rollups_basic():
     assert w["runs"] == 1
     assert w["modes"]["snapshot"] == 1
     assert w["reasons"]["none"] == 2
+
+
+def test_metrics_rollups_profile_counters():
+    from engine.core.reporting.reporter import RUN_REPORTER
+    import engine.core.reporting.reporter as reporter_mod
+    # Reset store and ensure shared instance
+    RUN_REPORTER._runs.clear()
+    RUN_REPORTER._open.clear()
+    reporter_mod.RUN_REPORTER = RUN_REPORTER
+
+    RUN_REPORTER.on_run_start("r-prof", mode="live", planner="glue")
+    RUN_REPORTER.on_run_finish(
+        "r-prof",
+        {
+            "reasons": {"none": 1},
+            "heal_attempts": 3,
+            "heal_successes": 1,
+            "healed_rate": 1/3,
+            "planner": "glue",
+            "planner_fallbacks": 0,
+            "profile_hits": 1,
+            "profile_misses": 2,
+        },
+    )
+    data = get_runs_metrics(window=None)
+    assert data["profile_hits"] == 1
+    assert data["profile_misses"] == 2
