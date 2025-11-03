@@ -63,13 +63,19 @@ class PostgresStorage:
         # Not persisted yet; placeholder for future expanded schema
         return None
 
-    def finish_run(self, run_id: str) -> None:
+    def finish_run(self, run_id: str, stats: dict | None = None) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE runs SET finished_at=NOW() WHERE run_id=%s",
-                    (run_id,),
-                )
+                if stats is None:
+                    cur.execute(
+                        "UPDATE runs SET finished_at=NOW() WHERE run_id=%s",
+                        (run_id,),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE runs SET finished_at=NOW(), stats=%s::jsonb WHERE run_id=%s",
+                        (json.dumps(stats), run_id),
+                    )
 
     # ---- Locator Profiles ----
     def save_locator_profile(self, *, domain: Optional[str], tool: str, target_signature: dict, selector: dict) -> None:
@@ -109,7 +115,7 @@ class PostgresStorage:
                         WHERE tool=%s AND ((domain IS NOT DISTINCT FROM %s) OR domain IS NULL)
                           AND target_signature @> %s::jsonb
                         ORDER BY (CASE WHEN domain IS NOT DISTINCT FROM %s THEN 1 ELSE 0 END) DESC,
-                                 jsonb_object_length(target_signature) DESC,
+                                 (SELECT COUNT(*) FROM jsonb_object_keys(target_signature)) DESC,
                                  hits DESC,
                                  last_seen DESC
                         LIMIT 1

@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = Field(default="http://ollama:11434", description="Ollama base URL")
     OLLAMA_MODEL: str = Field(default="llama3.1", description="Ollama model name")
     LLM_TIMEOUT_SECONDS: float = Field(default=10.0, description="Timeout for LLM calls (seconds)")
+    LLM_MAX_TOKENS: int = Field(default=256, description="Max tokens to generate for LLM responses")
+    LLM_TEMPERATURE: float = Field(default=0.2, description="LLM sampling temperature (0..1)")
 
     @model_validator(mode="before")
     @classmethod

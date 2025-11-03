@@ -63,10 +63,15 @@ class InMemoryStorage:
     def record_step(self, step):
         return None
 
-    def finish_run(self, run_id):
+    def finish_run(self, run_id, stats: dict | None = None):
         rec = self._runs.get(str(run_id))
         if rec is not None:
             rec["finished"] = True
+            if stats is not None:
+                try:
+                    rec["stats"] = dict(stats)
+                except Exception:
+                    rec["stats"] = stats
 
     # ---- Minimal Locator Profiles (in-memory) ----
     def save_locator_profile(self, *, domain, tool: str, target_signature: dict, selector: dict) -> None:
@@ -163,8 +168,6 @@ class Container(containers.DeclarativeContainer):
 
     reporter: providers.Provider[IReporter | None] = providers.Callable(_build_reporter, settings)
 
-    element_resolver = providers.Factory(ElementResolver)
-
     # TODO: replace with actual resolve_snapshot service
 
     # Provide the callable directly for clarity
@@ -192,6 +195,9 @@ class Container(containers.DeclarativeContainer):
 
     # Playwright browser adapter (for Live Mode)
     playwright_browser = providers.Singleton(PlaywrightBrowser)
+
+    # Element resolver with access to browser (for lightweight live checks)
+    element_resolver = providers.Factory(ElementResolver, browser=playwright_browser)
 
     # Concrete action handlers using shared Playwright browser
     open_handler = providers.Factory(OpenHandler, browser=playwright_browser)
@@ -238,6 +244,8 @@ class Container(containers.DeclarativeContainer):
             getattr(s, "OLLAMA_BASE_URL", "http://ollama:11434"),
             getattr(s, "OLLAMA_MODEL", "llama3.1"),
             timeout=float(getattr(s, "LLM_TIMEOUT_SECONDS", 10.0) or 10.0),
+            max_tokens=int(getattr(s, "LLM_MAX_TOKENS", 256) or 256),
+            temperature=float(getattr(s, "LLM_TEMPERATURE", 0.2) or 0.2),
         )
         if bool(getattr(s, "LLM_ENABLED", False))
         else None,

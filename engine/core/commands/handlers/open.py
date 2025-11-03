@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from engine.core.commands.action_handler import IActionHandler, ExecCtx, StepResult
+from engine.core.orchestrator import reasons as R
 from engine.core.browser.browser_port import IBrowser
 
 
@@ -12,9 +13,13 @@ class OpenHandler(IActionHandler):
     def execute(self, tool_call: dict, ctx: ExecCtx) -> StepResult:
         url = tool_call.get("args", {}).get("url")
         # Executor already guarded URL policy; just open
-        runner = getattr(self._browser, "run_coro", None)
-        if callable(runner):
-            runner(self._browser.open(url))
-        else:
-            asyncio.run(self._browser.open(url))
-        return StepResult(ok=True, reason=None)
+        try:
+            runner = getattr(self._browser, "run_coro", None)
+            if callable(runner):
+                runner(self._browser.open(url))
+            else:
+                asyncio.run(self._browser.open(url))
+            return StepResult(ok=True, reason=None)
+        except Exception:
+            # Convert navigation errors into a structured step failure
+            return StepResult(ok=False, reason=R.NAVIGATION_FAILED)

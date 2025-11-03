@@ -1,5 +1,6 @@
 from typing import Protocol, List, Any
 from ..types.dtos import TargetQuery, LocatorCandidates, Locator
+from engine.core.browser.browser_port import IBrowser
 from .strategies.semantic import SemanticStrategy, IResolverStrategy
 
 
@@ -16,8 +17,9 @@ class IElementResolver(Protocol):
 class ElementResolver:
     """Combines strategies; returns primary + fallbacks with a reason and confidence."""
 
-    def __init__(self, strategies: List[IResolverStrategy] | None = None):
+    def __init__(self, strategies: List[IResolverStrategy] | None = None, browser: IBrowser | None = None):
         self._strategies: List[IResolverStrategy] = strategies or [SemanticStrategy()]
+        self._browser: IBrowser | None = browser
 
     def resolve(
         self, query: TargetQuery, snapshot: "PageSnapshot"
@@ -50,24 +52,56 @@ class ElementResolver:
             "bbox": best.get("bbox"),
         }
 
-    # Minimal live find() for interactive tools. This stub does not query a DOM.
-    # It returns a synthetic candidate using provided target hints so execution
-    # paths can proceed and profiles can be recorded.
+    # Minimal live find() for interactive tools. This enhanced stub does not
+    # query a DOM, but synthesizes more realistic selectors based on common form
+    # patterns so that execution succeeds on typical pages (e.g., httpbin form).
     def find(self, target: dict) -> list[Any]:
         t = target or {}
+        # Debug triggers to exercise healing paths in dev/testing
+        try:
+            dbg_text = t.get("text") if isinstance(t.get("text"), str) else None
+            dbg_css = t.get("css") if isinstance(t.get("css"), str) else None
+            marker = dbg_text or dbg_css
+            if marker in {"[heal-zero]", "[heal:none]"}:
+                return []
+            if marker in {"[heal-multi]", "[heal:multi]"}:
+                return [
+                    {"type": "css", "value": "#a", "visible": True, "enabled": True},
+                    {"type": "css", "value": "#b", "visible": True, "enabled": True},
+                ]
+            if marker in {"[heal-hidden]", "[heal:hidden]"}:
+                return [
+                    {"type": "css", "value": "#hidden", "visible": False, "enabled": True}
+                ]
+        except Exception:
+            pass
         # Prefer explicit CSS if present
         css = t.get("css") if isinstance(t.get("css"), str) else None
         if css:
-            return [
-                {
-                    "type": "css",
-                    "value": css,
-                    "visible": True,
-                    "enabled": True,
-                    "tag": "*",
-                    "classes": [],
-                }
-            ]
+            # If we can check presence via browser, do it; otherwise return as-is
+            exists = True
+            try:
+                if self._browser is not None:
+                    runner = getattr(self._browser, "run_coro", None)
+                    eval_fn = getattr(self._browser, "evaluate", None)
+                    if callable(runner) and callable(eval_fn):
+                        import json as _json
+
+                        script = f"Boolean(document.querySelector({_json.dumps(css)}))"
+                        exists = bool(runner(eval_fn(script)))
+            except Exception:
+                exists = True
+            if exists:
+                return [
+                    {
+                        "type": "css",
+                        "value": css,
+                        "visible": True,
+                        "enabled": True,
+                        "tag": "*",
+                        "classes": [],
+                    }
+                ]
         # Fallback to id/testid/text heuristics to synthesize a selector
         attrs = t if isinstance(t, dict) else {}
         if attrs.get("id"):
@@ -90,8 +124,10 @@ class ElementResolver:
             ]
         text = attrs.get("text")
         if isinstance(text, str) and text:
-            # Special-case common control: 'input' -> generic input CSS
-            if text.strip().lower() == "input":
+            norm = text.strip()
+            lower = norm.lower()
+            if lower == "input":
+                # Generic input
                 return [
                     {
                         "type": "css",
@@ -102,14 +138,47 @@ class ElementResolver:
                         "classes": [],
                     }
                 ]
-            # Otherwise prefer Playwright text selector in stub form
+            # Normalize phrases like "the Name field" -> "Name"
+            try:
+                import re as _re
+
+                tokens = _re.findall(r"[A-Za-z]+", norm)
+                kw = max(tokens, key=len) if tokens else norm
+            except Exception:
+                kw = norm
+            # Prefer label association first (robust)
+            label_css = f'label:has-text("{norm}") input'
+            attr_css = f'input[name*="{kw}" i], input[aria-label*="{kw}" i], input[placeholder*="{kw}" i]'
+            # If possible, verify presence and pick first that exists
+            try:
+                runner = getattr(self._browser, "run_coro", None) if self._browser else None
+                eval_fn = getattr(self._browser, "evaluate", None) if self._browser else None
+                if callable(runner) and callable(eval_fn):
+                    import json as _json
+
+                    for cand_css in (label_css, attr_css, "input"):
+                        script = f"Boolean(document.querySelector({_json.dumps(cand_css)}))"
+                        if bool(runner(eval_fn(script))):
+                            return [
+                                {
+                                    "type": "css",
+                                    "value": cand_css,
+                                    "visible": True,
+                                    "enabled": True,
+                                    "tag": "input",
+                                    "classes": [],
+                                }
+                            ]
+            except Exception:
+                pass
+            # Fallback to label-based selector without verifying
             return [
                 {
-                    "type": "text",
-                    "value": text,
+                    "type": "css",
+                    "value": label_css,
                     "visible": True,
                     "enabled": True,
-                    "tag": "*",
+                    "tag": "input",
                     "classes": [],
                 }
             ]

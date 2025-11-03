@@ -1,4 +1,5 @@
 from typing import Any
+import os
 import asyncio
 import threading
 from playwright.async_api import async_playwright
@@ -13,6 +14,20 @@ class PlaywrightBrowser(IBrowser):
         self._playwright = None
         self._browser = None
         self._page = None
+        # Headless toggle via env (defaults to True). Prefer KAIZEN_HEADFUL=true to force headed.
+        headless = True
+        try:
+            if str(os.environ.get("KAIZEN_HEADFUL", "")).lower() in ("1", "true", "yes"):  # headed
+                headless = False
+            elif os.environ.get("KAIZEN_HEADLESS") is not None:
+                headless = str(os.environ.get("KAIZEN_HEADLESS")).lower() not in ("0", "false", "no")
+        except Exception:
+            headless = True
+        self._headless = headless
+        try:
+            self._slowmo = int(os.environ.get("KAIZEN_PW_SLOWMO", "0") or 0)
+        except Exception:
+            self._slowmo = 0
         self._loop = None
         self._thread = None
         self._ensure_loop()
@@ -37,9 +52,9 @@ class PlaywrightBrowser(IBrowser):
 
     async def open(self, url: str):
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
+        self._browser = await self._playwright.chromium.launch(headless=self._headless, slow_mo=self._slowmo or 0)
         self._page = await self._browser.new_page()
-        await self._page.goto(url)
+        await self._page.goto(url, wait_until="domcontentloaded")
 
     async def click(self, locator: Any):
         selector = to_selector_string(locator)
@@ -55,6 +70,9 @@ class PlaywrightBrowser(IBrowser):
 
     async def screenshot(self, path: str):
         await self._page.screenshot(path=path)
+
+    async def evaluate(self, script: str):
+        return await self._page.evaluate(script)
 
     async def close(self):
         await self._browser.close()

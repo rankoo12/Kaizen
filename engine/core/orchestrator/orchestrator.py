@@ -165,6 +165,12 @@ class EngineOrchestrator(IOrchestrator):
             }
             self._reporter.on_run_finish(run_id, stats)
             self._reporter.on_finish(run_id)
+        # Persist run stats to storage when available
+        try:
+            if hasattr(self._storage, "finish_run"):
+                self._storage.finish_run(run_id, stats)
+        except Exception:
+            pass
         return run_id
 
     def run_live(self, spec: Any, *, url: str | None = None) -> str:
@@ -248,8 +254,19 @@ class EngineOrchestrator(IOrchestrator):
             lower = text.strip().lower()
             if lower.startswith("click "):
                 raw = text.split(" ", 1)[1].strip() or ""
-                # Prefer structured CSS target when user specifies #id or .class
-                target = {"css": raw} if (raw.startswith("#") or raw.startswith(".")) else {"text": raw}
+                # Prefer structured CSS target when user specifies CSS-y strings
+                css_like = False
+                try:
+                    if raw.startswith("#") or raw.startswith(".") or raw.startswith("["):
+                        css_like = True
+                    # common tag selectors and attribute selectors
+                    elif raw.split("(")[0].lower().startswith(("input", "button", "a", "label", "form", "textarea", "select")):
+                        css_like = True
+                    elif "[" in raw or ":" in raw or ">" in raw or "=" in raw:
+                        css_like = True
+                except Exception:
+                    css_like = False
+                target = {"css": raw} if css_like else {"text": raw}
                 plan.append({"tool": "click", "args": {"target": target}})
             elif lower.startswith("type "):
                 typed = text.split(" ", 1)[1].strip()
@@ -264,8 +281,6 @@ class EngineOrchestrator(IOrchestrator):
         results = self._executor.execute(plan, ctx=ctx)
 
         # Finish run and log
-        if hasattr(self._storage, "finish_run"):
-            self._storage.finish_run(run_id)
         # Aggregate minimal stats + reasons breakdown + healing stats
         total = len(results)
         passed = sum(1 for r in results if getattr(r, "ok", False))
@@ -296,6 +311,12 @@ class EngineOrchestrator(IOrchestrator):
         if self._reporter:
             self._reporter.on_run_finish(run_id, stats)
             self._reporter.on_finish(run_id)
+        # Persist run stats to storage when available
+        try:
+            if hasattr(self._storage, "finish_run"):
+                self._storage.finish_run(run_id, stats)
+        except Exception:
+            pass
         if self._log:
             extra = {"planner": planner_path, "planner_fallbacks": fallback_count}
             try:

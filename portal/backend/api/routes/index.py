@@ -24,7 +24,14 @@ def index():
       <h1>Kaizen Portal</h1>
       <div class="row">
         <p>Paste a suite spec JSON, then click Run. The runner will pick it up. This page polls status every 2s.</p>
-      </div>
+  </div>
+      <hr />
+      <h2>New Test (Natural Language)</h2>
+      <div class=\"row\">\n        <input id=\"url\" placeholder=\"https://example.com or data:...\" style=\"width: 100%\"/>\n      </div>
+      <div class=\"row\">\n        <textarea id=\"stepsText\" placeholder=\"One step per line, e.g.\\nclick Login\\ntype hello\\npress Enter\"></textarea>\n      </div>
+      <div class=\"row\">\n        <button id=\"nlRunBtn\">Run NL Test</button>\n      </div>
+      <div class=\"row\">\n        <h3>Recent Runs</h3>\n        <button id=\"refreshRuns\">Refresh Runs</button>\n        <pre id=\"runs\"></pre>\n      </div>
+      <div class=\"row\">\n        <h3>Artifacts</h3>\n        <div id=\"artifacts\"></div>\n        <div id=\"shot\"></div>\n      </div>
       <div class="row">
         <textarea id="spec">{
   "id": "suite-portal",
@@ -50,11 +57,18 @@ def index():
 
       <script>
         const runBtn = document.getElementById('runBtn');
+        const nlRunBtn = document.getElementById('nlRunBtn');
         const specEl = document.getElementById('spec');
+        const urlEl = document.getElementById('url');
+        const stepsEl = document.getElementById('stepsText');
         const jobEl = document.getElementById('job');
         const runEl = document.getElementById('run');
         const statusEl = document.getElementById('status');
         const statsEl = document.getElementById('stats');
+        const runsEl = document.getElementById('runs');
+        const artifactsEl = document.getElementById('artifacts');
+        const shotEl = document.getElementById('shot');
+        const refreshRunsBtn = document.getElementById('refreshRuns');
 
         let jobId = null;
 
@@ -77,6 +91,16 @@ def index():
             runEl.textContent = data.runId || '';
             statusEl.textContent = data.status || '';
             statsEl.textContent = JSON.stringify(data.stats || {}, null, 2);
+            if (data.status === 'finished' && data.runId) {
+              try {
+                const arts = await getJSON(`/runs/${data.runId}/artifacts`);
+                artifactsEl.textContent = JSON.stringify(arts.items || [], null, 2);
+                const hasShot = (arts.items || []).find(it => it.name === 'screenshot');
+                if (hasShot) {
+                  shotEl.innerHTML = `<a href="/runs/${data.runId}/artifacts/screenshot" target="_blank">Open Screenshot</a><br/><img src="/runs/${data.runId}/artifacts/screenshot" alt="screenshot" style="max-width: 100%; border: 1px solid #ddd;"/>`;
+                }
+              } catch (e) { console.error('artifacts error', e); }
+            }
           } catch (e) { console.error('poll error', e); }
         }
 
@@ -91,6 +115,26 @@ def index():
             statsEl.textContent = '';
           } catch (e) { alert('Failed: ' + e.message); }
         });
+        nlRunBtn.addEventListener('click', async () => {
+          try {
+            const url = urlEl.value;
+            const stepsText = stepsEl.value;
+            const resp = await postJSON('/tests/nl-run', { url, stepsText });
+            jobId = resp.jobId;
+            jobEl.textContent = jobId;
+            runEl.textContent = '';
+            statusEl.textContent = 'queued';
+            statsEl.textContent = '';
+          } catch (e) { alert('Failed: ' + e.message); }
+        });
+
+        async function refreshRuns() {
+          try {
+            const data = await getJSON('/runs?limit=10');
+            runsEl.textContent = JSON.stringify(data, null, 2);
+          } catch (e) { console.error('refreshRuns failed', e); }
+        }
+        refreshRunsBtn.addEventListener('click', refreshRuns);
 
         setInterval(poll, 2000);
       </script>

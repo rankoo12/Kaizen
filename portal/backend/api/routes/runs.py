@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import httpx
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -40,9 +41,30 @@ def create_run(body: Dict[str, Any] | None = None):
             r.raise_for_status()
             job_id = r.json().get("job_id")
             print(f"[portal] enqueued job job_id={job_id}")
-            return {"jobId": job_id}
+        return {"jobId": job_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"portal run enqueue error: {e!s}")
+
+
+@router.get("")
+def list_runs(mode: str | None = None, limit: int | None = None, offset: int | None = None, since: float | None = None):
+    # Proxy to engine API /api/runs with query params
+    try:
+        q: Dict[str, Any] = {}
+        if mode:
+            q["mode"] = mode
+        if limit is not None:
+            q["limit"] = int(limit)
+        if offset is not None:
+            q["offset"] = int(offset)
+        if since is not None:
+            q["since"] = float(since)
+        with httpx.Client(timeout=10.0) as client:
+            r = client.get(f"{ENGINE_API_BASE}/runs", params=q)
+            r.raise_for_status()
+            return r.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal runs list error: {e!s}")
 
 
 @router.get("/{job_id}")
@@ -78,3 +100,33 @@ def get_run(job_id: str):
             return {"jobId": job_id, "status": "unknown"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"portal run status error: {e!s}")
+
+
+@router.get("/{run_id}/artifacts")
+def get_run_artifacts(run_id: str):
+    """Proxy artifacts list from Engine API.
+
+    Returns whatever the Engine API returns (JSON with items)."""
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            r = client.get(f"{ENGINE_API_BASE}/runs/{run_id}/artifacts")
+            r.raise_for_status()
+            return r.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal artifacts error: {e!s}")
+
+
+@router.get("/{run_id}/artifacts/{name}")
+def get_run_artifact_blob(run_id: str, name: str):
+    """Stream a single artifact (screenshot/log/etc) via the portal.
+
+    Mirrors content-type and bytes from the Engine API.
+    """
+    try:
+        with httpx.Client(timeout=None) as client:
+            r = client.get(f"{ENGINE_API_BASE}/runs/{run_id}/artifacts/{name}")
+            r.raise_for_status()
+            ct = r.headers.get("content-type", "application/octet-stream")
+            return Response(content=r.content, media_type=ct)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal artifact fetch error: {e!s}")

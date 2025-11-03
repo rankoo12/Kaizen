@@ -12,7 +12,7 @@ from engine.core.resolving.element_resolver import IElementResolver
 from engine.core.reporting.reporter import IReporter
 from engine.core.time.clock import IClock
 from engine.core.orchestrator import reasons as R
-from engine.core.config.settings import Settings
+from engine.core.config.settings import Settings, settings as _settings
 from engine.core.healing.selector_healer import ISelectorHealer
 from engine.core.llm.text_llm import ILLMText
 
@@ -62,6 +62,9 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._healer_mode_used = "none"
         self._llm_attempted = False
         self._det_attempted = False
+        # remember last successfully resolved clickable target to support
+        # glue-flow typing into the previously clicked field
+        self._last_target: Any | None = None
         self._profile_hits = 0
         self._profile_misses = 0
 
@@ -114,11 +117,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
                                 allowed = True
                                 break
                 if not allowed:
+                    # Fail fast: abort further steps when navigation is blocked
                     res = StepResult(ok=False, reason=R.URL_SCHEME_NOT_ALLOWED)
                     results.append(res)
                     self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
                     self._emit_metric(tool, res)
-                    continue
+                    break
 
                 res = handler.execute(call, ctx)
                 results.append(res)
@@ -201,6 +205,20 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         self._emit_metric(tool, res)
                         continue
 
+                # If typing with a generic/ambiguous target, prefer last clicked element
+                if tool == "type":
+                    try:
+                        t = target or {}
+                        t_is_generic = False
+                        if isinstance(t, dict):
+                            # generic hints often used by glue path
+                            if (t.get("text") == "input") or (t.get("css") == "input"):
+                                t_is_generic = True
+                        if (resolved is None or t_is_generic) and getattr(self, "_last_target", None) is not None:
+                            resolved = self._last_target
+                    except Exception:
+                        pass
+
                 # Attach resolved info for handlers via meta (non-schema execution detail)
                 if resolved is not None:
                     meta = dict(call.get("meta") or {})
@@ -224,14 +242,37 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         continue
 
                 res = handler.execute(call, ctx)
-                # attach signature when we have a resolved candidate
-                if resolved is not None and isinstance(res, StepResult) and res.signature is None:
-                    res.signature = self._build_signature(resolved)
+                # Attach signature based on the actual selector used. Handlers may
+                # update call["meta"]["resolved"] when they apply fallbacks.
+                actual_resolved = None
+                try:
+                    actual_resolved = (call.get("meta") or {}).get("resolved") or resolved
+                except Exception:
+                    actual_resolved = resolved
+                if actual_resolved is not None and isinstance(res, StepResult) and res.signature is None:
+                    res.signature = self._build_signature(actual_resolved)
+                # If a click failed, attempt healer recovery as a secondary path
+                if tool == "click" and isinstance(res, StepResult) and not res.ok:
+                    try:
+                        failure_reason = getattr(res, "reason", None) or R.CLICK_TIMEOUT
+                    except Exception:
+                        failure_reason = R.CLICK_TIMEOUT
+                    healed = self._try_heal(tool, target or {}, failure_reason, handler, call, ctx)
+                    if healed is not None:
+                        results.append(healed)
+                        self._emit_report(
+                            ctx, idx, tool, healed, duration=(time.time() - step_start), extra=getattr(self, "_last_heal_extra", None)
+                        )
+                        self._emit_metric(tool, healed)
+                        continue
                 results.append(res)
                 self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
                 try:
-                    if isinstance(res, StepResult) and res.ok and resolved is not None:
-                        self._maybe_save_profile(tool, res, resolved)
+                    if isinstance(res, StepResult) and res.ok and actual_resolved is not None:
+                        self._maybe_save_profile(tool, res, actual_resolved)
+                        if tool == "click":
+                            # remember last successful click target for subsequent type steps
+                            self._last_target = actual_resolved
                 except Exception:
                     pass
                 self._emit_metric(tool, res)
@@ -242,6 +283,31 @@ class DeterministicPlanExecutor(IPlanExecutor):
             results.append(res)
             self._emit_report(ctx, idx, tool or "<none>", res, duration=(time.time() - step_start))
             self._emit_metric(tool or "<none>", res)
+        # Best-effort final screenshot for portal/runner artifacts
+        try:
+            if self._browser is not None:
+                from pathlib import Path
+
+                logs_dir = getattr(_settings, "LOGS_DIR", Path("logs"))
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                out = logs_dir / f"screenshot-{getattr(ctx, 'run_id', 'run')}.png"
+                # run browser.screenshot in place (handlers already use run_coro when available)
+                take = getattr(self._browser, "screenshot", None)
+                if callable(take):
+                    try:
+                        # try sync helper first if present
+                        rc = getattr(self._browser, "run_coro", None)
+                        if callable(rc):
+                            rc(self._browser.screenshot(str(out)))
+                        else:
+                            # not ideal, but for local adapters fall back to async run
+                            import asyncio
+
+                            asyncio.run(self._browser.screenshot(str(out)))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return results
 
     def get_last_heal_stats(self) -> dict:
