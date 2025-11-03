@@ -1,4 +1,4 @@
-Kaizen — Engine + Portal (Current Status)
+Kaizen ג€” Engine + Portal (Current Status)
 
 Overview
 - Monorepo with a deterministic web test engine (FastAPI) and a minimal portal backend.
@@ -31,7 +31,7 @@ Key Environment Variables (all map from KAIZEN_* to Settings)
   - `KAIZEN_STORAGE_BACKEND=auto|in_memory|postgres` (auto selects Postgres if `KAIZEN_PG_DSN` set).
   - `KAIZEN_PG_DSN=postgresql://user:pass@host:5432/db`.
 
-End-to-End Flow (Author → Run → Heal → Learn → Review)
+End-to-End Flow (Author ג†’ Run ג†’ Heal ג†’ Learn ג†’ Review)
 0) Preconditions
 - Engine/Portal run via Docker; DI wiring in `engine/core/config/container.py`.
 - LLM via Ollama; outbound network not required.
@@ -48,7 +48,7 @@ End-to-End Flow (Author → Run → Heal → Learn → Review)
 - Engine also supports direct: `POST /api/runs` for immediate execution (snapshot/live).
 
 3) Execution
-- Orchestrator converts step text to validated tool calls (LLM with guardrails → glue fallback).
+- Orchestrator converts step text to validated tool calls (LLM with guardrails ג†’ glue fallback).
 - DeterministicPlanExecutor resolves targets (resolver stub for now) and executes via Playwright.
 - Click safety enforced (visible + enabled only).
 - On failure, Healer attempts selector recovery (profile-assisted first, then heuristics).
@@ -60,7 +60,7 @@ End-to-End Flow (Author → Run → Heal → Learn → Review)
 
 5) Artifacts & Metrics
 - Reporter stores step/run rollups in-memory and (optionally) JSONL tail (`JsonlTailReporter`).
-- Observability via OTel → Collector → Prometheus/Grafana:
+- Observability via OTel ג†’ Collector ג†’ Prometheus/Grafana:
   - Counters: `kaizen_runs_total`, `kaizen_runs_failed_total`.
   - Step histogram: `kaizen_step_duration_seconds`.
   - Queue gauge: `kaizen_queue_depth{state=queued|running}`.
@@ -72,11 +72,13 @@ End-to-End Flow (Author → Run → Heal → Learn → Review)
 6) Review
 - Run details via Engine API: `GET /api/runs/{run_id}`.
 - Portal run polling: `GET /runs/{jobId}` (portal backend proxy to engine queue/runs).
-- Grafana dashboard: “Kaizen Observability” panels include run rate, step p95, queue depth, and healing KPIs.
+- Grafana dashboard: ג€Kaizen Observabilityג€ panels include run rate, step p95, queue depth, and healing KPIs.
 
 Current Capabilities
 - LLM Planner Guardrails (live): strict JSON-only prompt, schema validation, glue fallback.
 - Selector Bridging: locator dicts converted to Playwright selectors (id, testid, css, text via case-insensitive regex).
+- DOM Resolver v1: verifies likely selectors via JS; prefers label→input and attribute contains; enforces visible+enabled safety.
+- Controls: radios/checkboxes prefer `page.check()` with click fallback for stability.
 - Domain-Scoped Profiles: save/find with domain preference and JSONB containment ordering (Postgres), in-memory fallback.
 - Healing KPIs: attempts/successes and profile hit/miss counters exposed to OTel/Prometheus.
 - Runs API
@@ -112,7 +114,8 @@ Developer Guide
   - Orchestrator: `engine/core/orchestrator/orchestrator.py`
   - Plan executor: `engine/core/orchestrator/plan_executor.py`
   - Healer: `engine/core/healing/selector_healer.py`
-  - Resolver (stub): `engine/core/resolving/element_resolver.py`
+  - Resolver (DOM-aware v1): `engine/core/resolving/element_resolver.py`
+    - JS-eval presence checks, label association, attribute contains (name/aria-label/placeholder/value), picks first visible+enabled. Healing remains backup.
   - Storage (Postgres): `engine/core/storage/postgres.py`
 - Reporter: `engine/core/reporting/reporter.py`
 
@@ -131,17 +134,17 @@ Observability
 - Collector config: `infra/otel-collector-config.yaml` (OTLP HTTP 4318, Prometheus exporter 9464).
 - Prometheus scrape: `infra/prometheus.yml`.
 - Grafana dashboard JSON: `infra/grafana/dashboards/kaizen.json`.
-- If you see “no data”:
+- If you see ג€no dataג€:
   - Recreate engine services so OTel deps install.
   - Trigger runs (use `/api/queue/sample`).
   - Healing KPIs appear only when healing is enabled and triggers.
 
-What’s Left / Next Missions
+Whatג€™s Left / Next Missions
 1) Resolver fidelity (high impact)
    - Replace stub `resolver.find()` with DOM-powered resolve. Improves click/type success and reduces reliance on healing.
 2) Runs API + Portal (polish)
    - Add cursor-based pagination (`after=<run_id>`), optional DB-backed stats.
-   - Portal “Runs” list page consuming `GET /api/runs`.
+   - Portal ג€Runsג€ list page consuming `GET /api/runs`.
 3) Profiles + Healer (polish)
    - Migrations (Alembic) and indexes; tie-breakers by specificity and hits finalized; domain normalization (registrable domain).
 4) Prompt + Guardrails (P10)
@@ -153,6 +156,7 @@ Troubleshooting
 - Playwright headless live runs: ensure chromium is installed in runner container (compose handles this).
 - OTel not exporting: check engine-api/runner logs for opentelemetry import errors; restart with `--force-recreate`.
 - Grafana panels empty: trigger runs; healing panels require `KAIZEN_HEALER_ENABLED=true` and a scenario that triggers healing.
+- Resolver oddities: if an element repeatedly fails to resolve, fetch the per-run log via `GET /api/runs/{run_id}/artifacts` and share it; extend ranking/selector synthesis based on evidence.
 
 License
 - See LICENSE.

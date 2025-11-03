@@ -214,7 +214,18 @@ class DeterministicPlanExecutor(IPlanExecutor):
                             # generic hints often used by glue path
                             if (t.get("text") == "input") or (t.get("css") == "input"):
                                 t_is_generic = True
-                        if (resolved is None or t_is_generic) and getattr(self, "_last_target", None) is not None:
+                        # If the previous step was a click and succeeded (we store _last_target only on success),
+                        # prefer typing into that element regardless of the current target specificity.
+                        try:
+                            prev_was_click = False
+                            if idx > 0:
+                                prev = plan[idx - 1] if isinstance(plan, list) else None
+                                prev_was_click = isinstance(prev, dict) and prev.get("tool") == "click"
+                        except Exception:
+                            prev_was_click = False
+                        if getattr(self, "_last_target", None) is not None and prev_was_click:
+                            resolved = self._last_target
+                        elif (resolved is None or t_is_generic) and getattr(self, "_last_target", None) is not None:
                             resolved = self._last_target
                     except Exception:
                         pass
@@ -349,6 +360,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 return None, True
             if (self._now_ms() - start) > timeout_ms:
                 return None, True
+            # brief backoff to avoid busy-spinning the CPU
+            try:
+                time.sleep(0.05)
+            except Exception:
+                pass
 
     def _check_click_safety(self, candidate: Any) -> str | None:
         # Fail-closed default: missing flags are treated as False
@@ -546,6 +562,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
             }
             try:
                 self._maybe_save_profile(tool, res, primary)
+            except Exception:
+                pass
+            # Ensure subsequent type uses the healed click target
+            try:
+                if tool == "click":
+                    self._last_target = primary
             except Exception:
                 pass
             # Profile KPIs: count hits when healer used a stored profile

@@ -180,14 +180,24 @@ class EngineOrchestrator(IOrchestrator):
             run_id = self._storage.start_run(test_id=test_id)
         else:
             run_id = f"run-{test_id}"
-        if self._log:
+        # Prefer a per-run JSONL logger so artifacts include a run-<id>.jsonl file
+        run_logger = None
+        if self._log and hasattr(self._log, "run_logger"):
+            try:
+                run_logger = self._log.run_logger(run_id=run_id)  # type: ignore[attr-defined]
+            except Exception:
+                run_logger = None
+        if (run_logger or self._log):
             extra = {}
             try:
                 if getattr(self._settings, "SBOM_REF", None):
                     extra["sbom_ref"] = self._settings.SBOM_REF
             except Exception:
                 pass
-            self._log.info("orchestrator.live.start", test_id=test_id, run_id=run_id, **extra)
+            try:
+                (run_logger or self._log).info("orchestrator.live.start", test_id=test_id, run_id=run_id, **extra)  # type: ignore[operator]
+            except Exception:
+                pass
         # Determine planner path before emitting start event
         planner_path = getattr(self._settings, "PLANNER_PATH", "glue") if hasattr(self, "_settings") and self._settings else "glue"
         if self._reporter:
@@ -278,7 +288,20 @@ class EngineOrchestrator(IOrchestrator):
         # Validate and execute
         self._validate(plan)
         ctx = ExecCtx(run_id=run_id)
-        results = self._executor.execute(plan, ctx=ctx)
+        # Temporarily route executor logs to the per-run logger so step logs land in run-<id>.jsonl
+        _prev_exec_log = getattr(self._executor, "_log", None)
+        try:
+            if run_logger is not None:
+                try:
+                    self._executor._log = run_logger  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            results = self._executor.execute(plan, ctx=ctx)
+        finally:
+            try:
+                self._executor._log = _prev_exec_log  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
         # Finish run and log
         # Aggregate minimal stats + reasons breakdown + healing stats
@@ -317,12 +340,15 @@ class EngineOrchestrator(IOrchestrator):
                 self._storage.finish_run(run_id, stats)
         except Exception:
             pass
-        if self._log:
+        if (run_logger or self._log):
             extra = {"planner": planner_path, "planner_fallbacks": fallback_count}
             try:
                 if getattr(self._settings, "SBOM_REF", None):
                     extra["sbom_ref"] = self._settings.SBOM_REF
             except Exception:
                 pass
-            self._log.info("orchestrator.live.finish", run_id=run_id, **extra)
+            try:
+                (run_logger or self._log).info("orchestrator.live.finish", run_id=run_id, **extra)  # type: ignore[operator]
+            except Exception:
+                pass
         return run_id
