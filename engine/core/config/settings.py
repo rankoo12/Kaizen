@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # immediate behavior applies unless a per-step ctx.timeout_ms is given.
     EXEC_TIMEOUT_MS: int | None = Field(default=None)
 
+    # Optional hard caps (ms)
+    RUN_TIMEOUT_MS: int | None = Field(default=None, description="Abort a run after this many milliseconds")
+    EXEC_STEP_TIMEOUT_MS: int | None = Field(default=None, description="Per-step soft timeout (currently applied to resolve phase only)")
+
     # SBOM reference identifier (if available) to tag run logs/metrics
     SBOM_REF: str | None = Field(default=None)
 

@@ -236,7 +236,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     healed = self._try_heal(tool, target or {}, failure_reason, handler, call, ctx)
                     if healed is not None:
                         results.append(healed)
-                        self._emit_report(ctx, idx, tool, healed, duration=(time.time() - step_start), extra=getattr(self, '_last_heal_extra', None))
+                        self._emit_report(ctx, idx, tool, healed, duration=(time.time() - step_start))
                         self._emit_metric(tool, healed)
                         continue
 

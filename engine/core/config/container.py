@@ -12,6 +12,7 @@ from engine.core.reporting.reporter import IReporter, RUN_REPORTER, InMemoryRunR
 from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
+from engine.core.resolving.snapshot_resolver import resolve_snapshot as _resolve_snapshot_impl
 from engine.core.llm.ollama_text import OllamaTextAdapter
 
 
@@ -30,12 +31,15 @@ def build_container() -> "Container":
 def _resolve_snapshot_stub(
     *, plan, html_path=None, tolerance: float, healer_depth: int
 ):
-    # Type-correct no-op result; preserves runner behavior until real pipeline lands
-    return {
-        "candidates": [],
-        "reason": f"stub(plan={getattr(plan, 'target_query', {})}, "
-        f"html_path={html_path}, tol={tolerance}, depth={healer_depth})",
-    }
+    # Delegate to real implementation (static HTML candidate catalog + semantic resolve)
+    try:
+        return _resolve_snapshot_impl(plan=plan, html_path=html_path, tolerance=tolerance, healer_depth=healer_depth)
+    except Exception:
+        # Best-effort fallback to an empty result to avoid breaking snapshot runs
+        return {
+            "candidates": [],
+            "reason": "snapshot_resolver_error",
+        }
 
 
 class StdoutLogger:
