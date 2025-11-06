@@ -87,6 +87,18 @@ def register_queue_routes(app: FastAPI) -> None:
     async def enqueue_run(body: Dict[str, Any], request: Request):
         # Prefer durable queue when available
         if _storage is not None and hasattr(_storage, "enqueue"):
+            # Enforce API key if multitenancy is enabled
+            try:
+                from engine.core.config.settings import settings as _settings
+
+                if getattr(_settings, "MULTITENANT_ENFORCED", False):
+                    api_key = request.headers.get("X-API-Key") if request else None
+                    resolver = getattr(_storage, "resolve_tenant", None)
+                    tenant_check = resolver(api_key) if callable(resolver) else None
+                    if not tenant_check:
+                        return {"error": "unauthorized"}
+            except Exception:
+                pass
             payload = dict(body or {})
             # Attach tenant_id from API key if resolvable
             try:
@@ -241,6 +253,14 @@ def register_queue_routes(app: FastAPI) -> None:
                 api_key = request.headers.get("X-API-Key")
                 res = getattr(_storage, "resolve_tenant", None)
                 tenant_id = res(api_key) if callable(res) else None
+                # If multitenancy is enforced, reject when no tenant is found
+                try:
+                    from engine.core.config.settings import settings as _settings
+
+                    if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
+                        return {"error": "unauthorized"}
+                except Exception:
+                    pass
                 return _storage.state(tenant=tenant_id)
             except Exception:
                 pass
