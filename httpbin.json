@@ -1,0 +1,10 @@
+{
+"id": "httpbin-attr",
+"steps": [
+{"text": "click input[name='custname']"},
+{"text": "type John Doe"},
+{"text": "click input[name='custtel']"},
+{"text": "type 0549255310"},
+{"text": "click [name='size'][value='small']"}
+]
+}

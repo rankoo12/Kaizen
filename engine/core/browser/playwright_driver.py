@@ -1,4 +1,5 @@
 from typing import Any
+import os
 import asyncio
 import threading
 from playwright.async_api import async_playwright
@@ -13,6 +14,30 @@ class PlaywrightBrowser(IBrowser):
         self._playwright = None
         self._browser = None
         self._page = None
+        # Headless toggle via env (defaults to True). Prefer KAIZEN_HEADFUL=true to force headed.
+        headless = True
+        try:
+            if str(os.environ.get("KAIZEN_HEADFUL", "")).lower() in ("1", "true", "yes"):  # headed
+                headless = False
+            elif os.environ.get("KAIZEN_HEADLESS") is not None:
+                headless = str(os.environ.get("KAIZEN_HEADLESS")).lower() not in ("0", "false", "no")
+        except Exception:
+            headless = True
+        self._headless = headless
+        try:
+            self._slowmo = int(os.environ.get("KAIZEN_PW_SLOWMO", "0") or 0)
+        except Exception:
+            self._slowmo = 0
+        # Default timeouts (ms)
+        try:
+            self._timeout_ms = int(os.environ.get("KAIZEN_PW_TIMEOUT_MS", "10000") or 10000)
+        except Exception:
+            self._timeout_ms = 10000
+        try:
+            self._nav_timeout_ms = int(os.environ.get("KAIZEN_PW_NAV_TIMEOUT_MS", "15000") or 15000)
+        except Exception:
+            self._nav_timeout_ms = 15000
+        self._nav_wait = str(os.environ.get("KAIZEN_NAV_WAIT", "domcontentloaded") or "domcontentloaded")
         self._loop = None
         self._thread = None
         self._ensure_loop()
@@ -37,12 +62,39 @@ class PlaywrightBrowser(IBrowser):
 
     async def open(self, url: str):
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
+        self._browser = await self._playwright.chromium.launch(headless=self._headless, slow_mo=self._slowmo or 0)
         self._page = await self._browser.new_page()
-        await self._page.goto(url)
+        # Set default timeouts on the page
+        try:
+            self._page.set_default_timeout(self._timeout_ms)
+            self._page.set_default_navigation_timeout(self._nav_timeout_ms)
+        except Exception:
+            pass
+        resp = None
+        try:
+            resp = await self._page.goto(url, wait_until=self._nav_wait)
+        except Exception:
+            resp = None
+        # Simple retry on server errors
+        try:
+            status = resp.status if resp is not None else None
+        except Exception:
+            status = None
+        if status is None or (isinstance(status, int) and status >= 500):
+            try:
+                await self._page.reload(wait_until=self._nav_wait)
+            except Exception:
+                pass
 
     async def click(self, locator: Any):
         selector = to_selector_string(locator)
+        # Prefer check() for radios/checkboxes or associated labels; fallback to click()
+        try:
+            await self._page.check(selector)
+            return
+        except Exception:
+            # Not a checkable control; fall back to a regular click
+            pass
         await self._page.click(selector)
 
     async def type(self, locator: Any, text: str):
@@ -55,6 +107,9 @@ class PlaywrightBrowser(IBrowser):
 
     async def screenshot(self, path: str):
         await self._page.screenshot(path=path)
+
+    async def evaluate(self, script: str):
+        return await self._page.evaluate(script)
 
     async def close(self):
         await self._browser.close()

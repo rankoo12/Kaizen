@@ -18,6 +18,8 @@ def build_planner_prompt(text: str, context: Dict[str, Any] | None = None) -> st
         "- type: {\"tool\": \"type\", \"args\": {\"target\": {...}, \"text\": string}}\n"
         "- press: {\"tool\": \"press\", \"args\": {\"key\": string}}\n"
         "Rules: Respond with JSON ONLY, no prose. Use safe defaults.\n"
+        "Output MUST be a JSON array (starts with '[' and ends with ']').\n"
+        "Do NOT include any other keys like model/created_at/thinking.\n"
     )
     extras = []
     if isinstance(ctx.get("url"), str):

@@ -21,6 +21,8 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
         "- type: {\"tool\": \"type\", \"args\": {\"target\": {...}, \"text\": string}}\n"
         "- press: {\"tool\": \"press\", \"args\": {\"key\": string}}\n"
         "Rules: Respond with JSON ONLY, no prose. Use safe defaults.\n"
+        "Output MUST be a JSON array (starts with '[' and ends with ']').\n"
+        "Do NOT include any other keys like model/created_at/thinking.\n"
     )
     extras = []
     if isinstance(ctx.get("url"), str):
@@ -32,6 +34,42 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
         "Example: 'press enter' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n\n"
     )
     return f"{header}\n{example}Instruction: {text}\nJSON:"
+
+def _glue_map(text: str) -> list[dict]:
+    """Deterministic fallback mapping from plain text to minimal tool calls.
+
+    Mirrors the glue mapping used by the live orchestrator so preview behaves
+    consistently when LLM is slow or returns non-JSON.
+    """
+    t = (text or "").strip()
+    lower = t.lower()
+    plan: list[dict] = []
+    if lower.startswith("click "):
+        raw = t.split(" ", 1)[1].strip()
+        css_like = False
+        try:
+            if raw.startswith(("#", ".", "[")):
+                css_like = True
+            elif raw.split("(")[0].lower().startswith(("input", "button", "a", "label", "form", "textarea", "select")):
+                css_like = True
+            elif "[" in raw or ":" in raw or ">" in raw or "=" in raw:
+                css_like = True
+        except Exception:
+            css_like = False
+        target = {"css": raw} if css_like else {"text": raw}
+        plan.append({"tool": "click", "args": {"target": target}})
+        return plan
+    if lower.startswith("type "):
+        typed = t.split(" ", 1)[1].strip()
+        plan.append({"tool": "type", "args": {"target": {"text": "input"}, "text": typed}})
+        return plan
+    if lower.startswith("press "):
+        key = t.split(" ", 1)[1].strip()
+        plan.append({"tool": "press", "args": {"key": key}})
+        return plan
+    # default: map to a click by text (conservative)
+    plan.append({"tool": "click", "args": {"target": {"text": t}}})
+    return plan
 
 
 @router.post("/plan/preview")
@@ -76,17 +114,39 @@ def preview_plan(body: Dict[str, Any]) -> Dict[str, Any]:
                 pass
         raise HTTPException(status_code=502, detail=f"llm error: {e}")
 
-    # Extract JSON array from response
+    # Extract a JSON array from the response with multiple fallbacks
     plan: Any = None
+    # 1) Direct parse
     try:
         plan = json.loads(raw)
     except Exception:
-        # heuristic: locate first '[' and last ']'
+        plan = None
+    # 2) If parsed as object, try typical fields that carry content
+    if isinstance(plan, dict):
+        # Some models return a wrapper object; try 'response' or chat 'message.content'
+        content = plan.get("response") if isinstance(plan.get("response"), str) else None
+        if not content:
+            msg = plan.get("message")
+            if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                content = msg.get("content")
+        if content:
+            try:
+                plan = json.loads(content)
+            except Exception:
+                plan = None
+    # 3) Heuristic: bracket slice from the raw string
+    if not isinstance(plan, list):
         try:
             start = raw.find("[")
             end = raw.rfind("]") + 1
             if start >= 0 and end > start:
                 plan = json.loads(raw[start:end])
+        except Exception:
+            plan = None
+    if plan is None or not isinstance(plan, list):
+        # Final fallback: deterministic glue mapping to keep preview useful
+        try:
+            plan = _glue_map(text)
         except Exception:
             plan = None
     if plan is None:

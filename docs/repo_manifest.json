@@ -1,0 +1,135 @@
+{
+  "generated_at": "2025-11-05T00:00:00Z",
+  "areas": {
+    "API": "FastAPI server, routes and schemas",
+    "Orchestrator": "Plan building, execution, live/snapshot runners",
+    "Commands": "Action handlers and selector conversion",
+    "Resolving": "Element resolver, strategies, and snapshot resolver",
+    "Browser": "Browser adapter (Playwright) and snapshot DTOs",
+    "LLM": "LLM interfaces, adapters, and prompts",
+    "Healer": "Deterministic profile-assisted healer",
+    "Reporting": "Run/step reporting, OTEL metrics, rollups",
+    "Storage": "Persistence (Postgres) for runs and locator profiles",
+    "Config": "Settings and DI container wiring",
+    "Parsing": "Natural-language step parsing and types",
+    "Types": "Shared DTOs, ontology, schemas, and validation",
+    "Runner": "Runner entrypoint and packaging for engine",
+    "Portal Backend": "Thin backend for NL runs and artifacts proxy",
+    "Infra": "Docker compose, OTEL, Prometheus, Grafana, Jenkins",
+    "Docs": "Project documentation and ADRs",
+    "Tests": "API/Orchestrator/Resolving/Healer/etc test suites",
+    "Root": "Root-level configs, requirements, scripts and README"
+  },
+  "files": {
+    "engine/api/server.py": {"area": "API", "summary": "Creates FastAPI app, wires DI, includes routers, sets OTEL."},
+    "engine/api/cli.py": {"area": "API", "summary": "CLI entry for snapshot-run/live-run; integrates with orchestrator."},
+    "engine/api/routes/system.py": {"area": "API", "summary": "System/health routes."},
+    "engine/api/routes/resolve.py": {"area": "API", "summary": "Resolve endpoint; delegates to resolve service/resolver."},
+    "engine/api/routes/runs.py": {"area": "API", "summary": "Create/list/get runs; uses orchestrator and storage fallback."},
+    "engine/api/routes/queue.py": {"area": "API", "summary": "Dev queue endpoints for sampling and job state."},
+    "engine/api/routes/suites.py": {"area": "API", "summary": "Store/retrieve suite specs by id."},
+    "engine/api/routes/plan.py": {"area": "API", "summary": "LLM plan preview; validates JSON-only tool calls."},
+    "engine/api/routes/profiles.py": {"area": "API", "summary": "Profile listing and lookup endpoints."},
+    "engine/api/routes/artifacts.py": {"area": "API", "summary": "Lists/serves per-run artifacts (log, screenshot, snapshot files)."},
+    "engine/api/routes/metrics.py": {"area": "API", "summary": "Aggregated engine metrics/rollups API."},
+    "engine/api/schemas/resolve_request.schema.json": {"area": "API", "summary": "JSON schema for resolve request payloads."},
+
+    "engine/core/orchestrator/orchestrator.py": {"area": "Orchestrator", "summary": "Coordinates planning, validation, execution; emits run stats."},
+    "engine/core/orchestrator/plan_executor.py": {"area": "Orchestrator", "summary": "Deterministic executor: resolve targets, run handlers, heal, report."},
+    "engine/core/orchestrator/live_runner.py": {"area": "Orchestrator", "summary": "Async wrapper to run live specs via browser/orchestrator."},
+    "engine/core/orchestrator/snapshot_runner.py": {"area": "Orchestrator", "summary": "Snapshot spec runner; writes steps.jsonl and resolve.json."},
+    "engine/core/orchestrator/reasons.py": {"area": "Orchestrator", "summary": "Canonical step failure and policy reason codes."},
+    "engine/core/orchestrator/types.py": {"area": "Orchestrator", "summary": "Interfaces and datatypes for planners, executor, and plans."},
+
+    "engine/core/commands/handlers/open.py": {"area": "Commands", "summary": "Open URL handler using browser adapter and waits/timeouts."},
+    "engine/core/commands/handlers/click.py": {"area": "Commands", "summary": "Click handler; uses meta.resolved; basic fallbacks on failure."},
+    "engine/core/commands/handlers/type.py": {"area": "Commands", "summary": "Type handler; fill text into resolved element."},
+    "engine/core/commands/handlers/press.py": {"area": "Commands", "summary": "Keyboard press handler."},
+    "engine/core/commands/selector.py": {"area": "Commands", "summary": "Convert locator dicts (css/id/testid/text) to PW selectors."},
+    "engine/core/commands/action_handler.py": {"area": "Commands", "summary": "IActionHandler, StepResult, and ExecCtx definitions."},
+
+    "engine/core/resolving/element_resolver.py": {"area": "Resolving", "summary": "DOM-aware resolver combining multiple strategies and live find()."},
+    "engine/core/resolving/strategies/semantic.py": {"area": "Resolving", "summary": "Heuristic scoring by role/testid/id/text/visibility."},
+    "engine/core/resolving/strategies/attributes.py": {"area": "Resolving", "summary": "Scores exact/contains matches for testid/id/name/aria/placeholder/value."},
+    "engine/core/resolving/strategies/label_text.py": {"area": "Resolving", "summary": "Scores labels’ innerText and button/link text matches."},
+    "engine/core/resolving/strategies/structural.py": {"area": "Resolving", "summary": "Light hints from tag/type and role (email/tel/password/button)."},
+    "engine/core/resolving/snapshot_resolver.py": {"area": "Resolving", "summary": "Extracts candidates from static HTML and resolves using strategies."},
+    "engine/core/api/resolve_service.py": {"area": "Resolving", "summary": "Service layer used by resolve API; calls element resolver."},
+
+    "engine/core/browser/playwright_driver.py": {"area": "Browser", "summary": "Playwright adapter (headless/headed, nav wait, click/check/type)."},
+    "engine/core/browser/browser_port.py": {"area": "Browser", "summary": "IBrowser/ISnapshotter protocols for browser abstraction."},
+    "engine/core/browser/snapshotter.py": {"area": "Browser", "summary": "Snapshot capture placeholder (returns DTO skeleton)."},
+    "engine/core/browser/snapshot_dto.py": {"area": "Browser", "summary": "TypedDict DTOs describing snapshot structure and candidates."},
+
+    "engine/core/llm/text_llm.py": {"area": "LLM", "summary": "ILLMText interface for text-only LLM calls."},
+    "engine/core/llm/ollama_text.py": {"area": "LLM", "summary": "Adapter for local Ollama; enforces JSON-only plan responses."},
+    "engine/core/llm/plan_prompt.py": {"area": "LLM", "summary": "Prompt builder with guardrails for plan preview."},
+
+    "engine/core/healing/selector_healer.py": {"area": "Healer", "summary": "Deterministic healer: profile-assisted, CSS generalization, stable attrs."},
+
+    "engine/core/reporting/reporter.py": {"area": "Reporting", "summary": "In-memory/JSONL reporters; step spans; OTEL metrics; rollups API."},
+    "engine/core/metrics/collector.py": {"area": "Reporting", "summary": "Decorator/hook to collect timing/counters for instrumented functions."},
+
+    "engine/core/storage/postgres.py": {"area": "Storage", "summary": "Postgres storage: runs and locator_profiles with JSONB + GIN."},
+
+    "engine/core/config/settings.py": {"area": "Config", "summary": "KAIZEN_* env-driven settings (planner/healer/toggles/timeouts)."},
+    "engine/core/config/container.py": {"area": "Config", "summary": "DI container wiring for browser/resolver/handlers/orchestrator/storage."},
+
+    "engine/core/parsing/nl_steps.py": {"area": "Parsing", "summary": "Simple NL-to-tool inference/glue mapping."},
+    "engine/core/parsing/types.py": {"area": "Parsing", "summary": "Parsing-related types."},
+
+    "engine/core/types/dtos.py": {"area": "Types", "summary": "Shared DTOs for plans, locators, and specs."},
+    "engine/core/types/ontology.py": {"area": "Types", "summary": "Action/tool ontology definitions."},
+    "engine/core/types/schemas.py": {"area": "Types", "summary": "JSON schemas for plan/spec validation."},
+    "engine/core/validation/plan_validator.py": {"area": "Types", "summary": "Validates LLM/glue plans against schema."},
+
+    "engine/core/logging/log.py": {"area": "Reporting", "summary": "Per-run JSONL logger with OTEL trace/span correlation fields."},
+    "engine/core/time/clock.py": {"area": "Types", "summary": "Clock abstraction used for deterministic timing in tests."},
+
+    "engine/runner/__main__.py": {"area": "Runner", "summary": "Runner entrypoint; calls CLI/orchestrator inside container."},
+    "engine/pyproject.toml": {"area": "Runner", "summary": "Engine package metadata and dependencies."},
+    "engine/Dockerfile": {"area": "Runner", "summary": "Docker image build for engine service/runner."},
+
+    "portal/backend/api/routes/index.py": {"area": "Portal Backend", "summary": "Serves thin HTML page for NL runs and artifact viewing."},
+    "portal/backend/api/routes/tests.py": {"area": "Portal Backend", "summary": "POST /tests/nl-run: proxies NL test to engine queue."},
+    "portal/backend/api/routes/runs.py": {"area": "Portal Backend", "summary": "Proxies /runs and artifacts to engine API; polls queue state."},
+    "portal/backend/api/routes/config.py": {"area": "Portal Backend", "summary": "Portal config route."},
+    "portal/backend/pyproject.toml": {"area": "Portal Backend", "summary": "Portal backend dependencies and packaging."},
+    "portal/backend/Dockerfile": {"area": "Portal Backend", "summary": "Dockerfile for portal backend service."},
+
+    "infra/docker-compose.yml": {"area": "Infra", "summary": "Local stack: engine-api, runner, Postgres, OTEL, Prometheus, Grafana."},
+    "infra/otel-collector-config.yaml": {"area": "Infra", "summary": "Collector pipeline: OTLP HTTP + filelog → exporters."},
+    "infra/prometheus.yml": {"area": "Infra", "summary": "Prometheus scrape configuration for engine metrics."},
+    "infra/grafana/dashboards/kaizen.json": {"area": "Infra", "summary": "Prebuilt Grafana dashboard for engine KPIs."},
+    "infra/grafana/provisioning/dashboards/dashboard.yml": {"area": "Infra", "summary": "Grafana dashboard provisioning."},
+    "infra/grafana/provisioning/datasources/datasource.yml": {"area": "Infra", "summary": "Grafana datasource provisioning (Prometheus)."},
+    "infra/jenkins/Dockerfile": {"area": "Infra", "summary": "Jenkins agent image Dockerfile."},
+    "infra/jenkins/docker-compose.yml": {"area": "Infra", "summary": "Compose to run Jenkins locally (optional)."},
+    "infra/jenkins/plugins.txt": {"area": "Infra", "summary": "Jenkins plugins list."},
+    "infra/Jenkinsfile": {"area": "Infra", "summary": "Main Jenkins pipeline for CI."},
+    "infra/Jenkinsfile.sanity": {"area": "Infra", "summary": "Sanity Jenkins pipeline variant."},
+
+    "docs/ADRs/0001-monorepo.md": {"area": "Docs", "summary": "ADR: monorepo rationale and structure."},
+    "docs/ADRs/0002-Robustness.md": {"area": "Docs", "summary": "ADR: robustness phases (resolver/healer/etc.)."},
+    "docs/ADRs/0003-snapshot-mvp.md": {"area": "Docs", "summary": "ADR: snapshot MVP artifacts and flow."},
+    "docs/ADRs/0004-observability-metrics.md": {"area": "Docs", "summary": "ADR: metrics and observability pipeline."},
+    "docs/ADRs/0005-portal-thin-ui.md": {"area": "Docs", "summary": "ADR: thin portal UI plan."},
+    "docs/ADRs/0006-db-persistence-postgres.md": {"area": "Docs", "summary": "ADR: DB persistence approach (Postgres + artifacts)."},
+    "docs/observability.md": {"area": "Docs", "summary": "How to use OTEL/Prometheus/Grafana locally."},
+    "docs/CI_JENKINS.md": {"area": "Docs", "summary": "CI setup details for Jenkins."},
+    "docs/CONTRIBUTING.md": {"area": "Docs", "summary": "Contributor guidelines."},
+    "docs/PROJECT_GUIDE.md": {"area": "Docs", "summary": "Project overview and architecture guide."},
+    "docs/SECURITY.md": {"area": "Docs", "summary": "Security practices and notes."},
+
+    "README.md": {"area": "Root", "summary": "Project overview, quick start, env vars, and next missions."},
+    "requirements.txt": {"area": "Root", "summary": "Python dependencies for engine/dev."},
+    "Makefile": {"area": "Root", "summary": "Convenience tasks for build/test/compose."},
+    "scripts/ci.sh": {"area": "Root", "summary": "CI script to run tests/build in pipeline."},
+    "scripts/ci_sanity.py": {"area": "Root", "summary": "Sanity CI script for quick verification."},
+    "LICENSE": {"area": "Root", "summary": "License file."}
+  },
+  "notes": [
+    "Tests are grouped by directory (engine/tests/**) and cover API, Orchestrator, Resolving, Healer, Storage, etc.",
+    "Manifest focuses on source/infra/docs; add or refine entries as the codebase evolves."
+  ]
+}

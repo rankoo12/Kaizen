@@ -3,10 +3,6 @@
 # 1) Use Microsoft’s Playwright Python image so browsers & OS deps are preinstalled
 FROM mcr.microsoft.com/playwright/python:v1.55.0-jammy AS base
 
-# Security hardening and non-root user
-# (the image already has a non-root user 'pwuser', but we keep an explicit app user)
-RUN useradd -m -u 10001 appuser
-
 WORKDIR /app
 
 # Environment for deterministic installs and faster pip
@@ -16,7 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-# 2) Install Python deps
+# 2) Install Python deps (as root), then drop privileges to pwuser
 # Prefer pinned requirements; fall back to pyproject if needed later
 COPY requirements.txt /app/requirements.txt
 RUN python -m pip install -U pip && \
@@ -25,8 +21,8 @@ RUN python -m pip install -U pip && \
 # 3) Copy app code last (to leverage layer caching)
 COPY . /app
 
-# 4) Switch to non-root
-USER appuser
+# 4) Switch to the Playwright-provided non-root user 'pwuser' (has browser access)
+USER pwuser
 
 # 5) Default command: FastAPI server (same as your compose command)
 # If you want CLI by default, change this to: ["python","-m","engine.api.cli"]

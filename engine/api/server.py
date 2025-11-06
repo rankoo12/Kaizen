@@ -90,9 +90,15 @@ def create_app(resolver=None) -> FastAPI:
     if resolver is None:
         container = Container()
         resolver = container.element_resolver()
-        # Ensure reporter backend is wired globally for routes and reused by orchestrator
+        # Ensure reporter backend is wired globally for routes and reused by orchestrator.
+        # If tests or callers already seeded RUN_REPORTER, reuse it instead of replacing.
         import engine.core.reporting.reporter as reporter_mod
-        reporter = container.reporter()
+        try:
+            reporter = reporter_mod.RUN_REPORTER
+        except Exception:
+            reporter = None
+        if reporter is None:
+            reporter = container.reporter()
         reporter_mod.RUN_REPORTER = reporter
         orchestrator = container.orchestrator(reporter=reporter)
 

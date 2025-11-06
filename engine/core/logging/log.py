@@ -82,6 +82,9 @@ class RunJsonlLogger:
             pass
         if kwargs:
             record.update({k: normalize(v) for k, v in kwargs.items()})
+        # Ensure expected keys exist for OTEL filelog transforms
+        record.setdefault("trace_id", "")
+        record.setdefault("span_id", "")
 
         self._fp.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._fp.flush()

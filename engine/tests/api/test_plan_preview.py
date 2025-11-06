@@ -56,3 +56,63 @@ def test_plan_preview_validates_and_returns_plan(monkeypatch):
     data = r.json()
     assert data["valid"] is True
     assert isinstance(data.get("plan"), list) and data["plan"][0]["tool"] == "press"
+
+
+def test_plan_preview_glue_fallback_on_non_json(monkeypatch):
+    class _FakeLLM:
+        def ask(self, prompt: str) -> str:
+            # Return a non-JSON response to trigger fallback
+            return "not json at all"
+
+    class _C:
+        def llm_text(self):
+            return _FakeLLM()
+
+        def settings(self):
+            return _FakeSettings()
+
+    app = _build_app_with_container(monkeypatch, _C)
+    client = TestClient(app)
+    r = client.post("/api/plan/preview", json={"text": "click Login"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["valid"] is True
+    plan = data.get("plan")
+    assert isinstance(plan, list)
+    assert plan[0]["tool"] == "click"
+    assert plan[0]["args"]["target"]["text"].lower() == "login"
+
+
+def test_plan_preview_parses_chat_wrapper(monkeypatch):
+    class _FakeLLM:
+        def ask(self, prompt: str) -> str:
+            # Return a chat-style wrapper with message.content holding JSON
+            payload = {
+                "model": "x",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps([
+                        {"tool": "click", "args": {"target": {"text": "Name"}}}
+                    ]),
+                },
+                "done": True,
+            }
+            return json.dumps(payload)
+
+    class _C:
+        def llm_text(self):
+            return _FakeLLM()
+
+        def settings(self):
+            return _FakeSettings()
+
+    app = _build_app_with_container(monkeypatch, _C)
+    client = TestClient(app)
+    r = client.post("/api/plan/preview", json={"text": "Click the Name field"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["valid"] is True
+    plan = data.get("plan")
+    assert isinstance(plan, list)
+    assert plan[0]["tool"] == "click"
+    assert plan[0]["args"]["target"]["text"] == "Name"

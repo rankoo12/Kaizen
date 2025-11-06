@@ -24,6 +24,7 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         limit: int = Query(default=50, ge=1, le=200),
         since: float | None = Query(default=None, description="Unix epoch seconds; include runs started at or after"),
         offset: int = Query(default=0, ge=0, description="Offset for simple pagination"),
+        after: str | None = Query(default=None, description="Cursor: return runs after this run_id"),
     ):
         """List recent runs from reporter; best-effort DB fallback when available.
 
@@ -52,8 +53,18 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                     all_runs = [r for r in all_runs if float(r.get("started", 0) or 0) >= s]
                 except Exception:
                     pass
-            total = len(all_runs)
-            window = all_runs[offset : offset + limit]
+            # Cursor-based pagination: if 'after' provided, find its index and start after it
+            if after:
+                try:
+                    idx = next(i for i, r in enumerate(all_runs) if str(r.get("run_id")) == str(after))
+                    start = idx + 1
+                except StopIteration:
+                    start = 0
+                window = all_runs[start : start + limit]
+                total = len(all_runs) - start
+            else:
+                total = len(all_runs)
+                window = all_runs[offset : offset + limit]
             runs = [
                 {
                     "run_id": r.get("run_id"),
@@ -83,8 +94,32 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                     args.append(float(since))
                 if where:
                     sql += " WHERE " + " AND ".join(where)
-                sql += " ORDER BY started_at DESC LIMIT %s OFFSET %s"
-                args.extend([int(limit), int(offset)])
+                if after:
+                    # Cursor: fetch runs strictly after the 'after' run's started_at
+                    # Resolve 'after' first
+                    try:
+                        with st._conn() as conn:  # type: ignore[attr-defined]
+                            with conn.cursor() as cur:
+                                cur.execute("SELECT started_at FROM runs WHERE run_id=%s", (str(after),))
+                                row = cur.fetchone()
+                                if row and row[0]:
+                                    where.append("started_at < %s")
+                                    args.append(row[0])
+                    except Exception:
+                        pass
+                    if where:
+                        sql = (
+                            "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats FROM runs WHERE "
+                            + " AND ".join(where)
+                            + " ORDER BY started_at DESC LIMIT %s"
+                        )
+                        args.append(int(limit))
+                    else:
+                        sql += " ORDER BY started_at DESC LIMIT %s"
+                        args.append(int(limit))
+                else:
+                    sql += " ORDER BY started_at DESC LIMIT %s OFFSET %s"
+                    args.extend([int(limit), int(offset)])
                 out = []
                 with st._conn() as conn:  # type: ignore[attr-defined]
                     with conn.cursor() as cur:

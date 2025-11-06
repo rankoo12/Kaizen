@@ -45,6 +45,10 @@ def _artifact_map(run_id: str) -> Dict[str, Path]:
     run_log = settings.LOGS_DIR / f"run-{run_id}.jsonl"
     if run_log.exists() and run_log.is_file():
         items["log"] = run_log
+    # Final screenshot (live runs via executor)
+    scr = settings.LOGS_DIR / f"screenshot-{run_id}.png"
+    if scr.exists() and scr.is_file():
+        items["screenshot"] = scr
     # Snapshot artifacts (if exist)
     snap_dir = _find_snapshot_dir_for_run(run_id)
     if snap_dir and snap_dir.exists():

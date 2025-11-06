@@ -27,7 +27,10 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
-    image: mcr.microsoft.com/playwright/python:v1.55.0-jammy
+    build:
+      context: ..
+      dockerfile: engine/Dockerfile
+    image: kaizen-engine:dev
     container_name: kaizen-engine-api
     working_dir: /app
 
@@ -52,6 +55,8 @@ services:
     environment:
       KAIZEN_VISUAL_TOLERANCE: "0.0025"
       KAIZEN_HEALER_DEPTH: "2"
+      KAIZEN_HEALER_ENABLED: "true"
+      KAIZEN_HEALER_PATH: "deterministic"
       # Use browsers preinstalled in the Playwright base image
       PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -59,14 +64,16 @@ services:
       PYTHONWARNINGS: "ignore"
       KAIZEN_STORAGE_BACKEND: "postgres"
       KAIZEN_PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
+      # LLM disabled by default (enable later to use your local Ollama)
+      KAIZEN_LLM_ENABLED: "true"
+      KAIZEN_PLANNER_PATH: "llm"
+      KAIZEN_ALLOWED_URL_SCHEMES: "https://,http://,about:blank,data:,https://httpbin.org/forms/post"
+      KAIZEN_OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      KAIZEN_OLLAMA_MODEL: qwen3:8b
+      KAIZEN_LLM_TIMEOUT_SECONDS: 60
 
-    command: >
-      bash -lc '
-        set -e;
-        pip install --no-cache-dir -r requirements.txt;
-        # Use factory mode so uvicorn calls create_app()
-        uvicorn engine.api.server:create_app --factory --host 0.0.0.0 --port 8080 --log-level warning --no-access-log
-      '
+    # Use app image entrypoint (uvicorn from Dockerfile). To see access logs, set log-level to info and drop --no-access-log in Dockerfile or override here.
+    command: ["uvicorn", "engine.api.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--log-level", "warning", "--no-access-log"]
 
     healthcheck:
       test: ["CMD-SHELL", "python - <<'PY'\nimport sys,urllib.request\ntry:\n  urllib.request.urlopen('http://127.0.0.1:8080/api/docs', timeout=2)\n  sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
@@ -79,7 +86,7 @@ services:
     networks:
       - kaizen
   engine-runner:
-    image: mcr.microsoft.com/playwright/python:v1.55.0-jammy
+    image: kaizen-engine:dev
     container_name: kaizen-engine-runner
     working_dir: /app
     depends_on:
@@ -90,7 +97,6 @@ services:
     # Allow apt-get to run by keeping default capabilities
     # (dropping all caps breaks setuid/setgid/chown inside apt)
     # security_opt and cap_drop intentionally omitted for this runner
-    user: "0:0"
     tmpfs:
       - /tmp:size=512m,mode=1777
     volumes:
@@ -104,23 +110,18 @@ services:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       KAIZEN_API_BASE: "http://engine-api:8080/api"
       PYTHONWARNINGS: "ignore"
+      KAIZEN_HEALER_ENABLED: "true"
+      KAIZEN_HEALER_PATH: "deterministic"
       KAIZEN_STORAGE_BACKEND: "postgres"
       KAIZEN_PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
-    command: >
-      bash -lc '
-        set -euo pipefail;
-        export DEBIAN_FRONTEND=noninteractive;
-        apt-get update;
-        apt-get install -y --no-install-recommends ca-certificates;
-        rm -rf /var/lib/apt/lists/*;
-        python -m pip install -U pip;
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi;
-        # Playwright runtime is in base image; install deps and chromium only if needed
-        python -m playwright install-deps || true;
-        python -m playwright install chromium || true;
-        mkdir -p reports logs snapshots;
-        python -m engine.runner
-      '
+      # LLM disabled by default (enable later to use your local Ollama)
+      KAIZEN_LLM_ENABLED: "true"
+      KAIZEN_PLANNER_PATH: "llm"
+      KAIZEN_ALLOWED_URL_SCHEMES: "https://,http://,about:blank,data:,https://httpbin.org/forms/post"
+      KAIZEN_OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      KAIZEN_OLLAMA_MODEL: qwen3:8b
+      KAIZEN_LLM_TIMEOUT_SECONDS: 60
+    command: ["python", "-m", "engine.runner"]
     networks:
       - kaizen
   portal:
@@ -134,6 +135,7 @@ services:
       - ..:/app:ro
     environment:
       PYTHONUNBUFFERED: "1"
+      PYTHONPATH: "/app"
       ENGINE_API_BASE: "http://engine-api:8080/api"
       PYTHONWARNINGS: "ignore"
     ports:

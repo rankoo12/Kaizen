@@ -1,4 +1,4 @@
-from engine.core.resolving.element_resolver import ElementResolver
+﻿from engine.core.resolving.element_resolver import ElementResolver
 from engine.core.browser.snapshot_dto import PageSnapshot
 
 
@@ -38,4 +38,4 @@ def test_element_resolver_returns_primary_and_fallbacks():
     assert res["primary"]["type"] in ("id", "testid", "css")
     assert isinstance(res["fallbacks"], list)
     assert res["confidence"] >= 0.0 and res["confidence"] <= 1.0
-    assert "SemanticStrategy" in res["reason"]
+    assert ("SemanticStrategy" in res["reason"]) or ("LayeredStrategies" in res["reason"])

@@ -397,11 +397,19 @@ async def _run_job(api_base: str, job: Dict[str, Any]) -> None:
                 print(f"[runner] posted finish run_id={run_id}")
             except Exception:
                 pass
-        except Exception:
+        except Exception as e:
             # Best-effort failure record
             try:
                 if run_id is None:
                     run_id = f"job-{job.get('job_id')}-error"
+                # Log the exception to help diagnose runner failures
+                try:
+                    import traceback as _tb
+
+                    print("[runner] error:")
+                    _tb.print_exc()
+                except Exception:
+                    print(f"[runner] error: {e!r}")
                 await client.post(
                     f"{api_base}/runs/{run_id}/finish",
                     json={"stats": {"total": 0, "passed": 0, "failed": 1, "reasons": {"runner_error": 1}}},

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # immediate behavior applies unless a per-step ctx.timeout_ms is given.
     EXEC_TIMEOUT_MS: int | None = Field(default=None)
 
+    # Optional hard caps (ms)
+    RUN_TIMEOUT_MS: int | None = Field(default=None, description="Abort a run after this many milliseconds")
+    EXEC_STEP_TIMEOUT_MS: int | None = Field(default=None, description="Per-step soft timeout (currently applied to resolve phase only)")
+
     # SBOM reference identifier (if available) to tag run logs/metrics
     SBOM_REF: str | None = Field(default=None)
 
@@ -68,6 +72,8 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = Field(default="http://ollama:11434", description="Ollama base URL")
     OLLAMA_MODEL: str = Field(default="llama3.1", description="Ollama model name")
     LLM_TIMEOUT_SECONDS: float = Field(default=10.0, description="Timeout for LLM calls (seconds)")
+    LLM_MAX_TOKENS: int = Field(default=256, description="Max tokens to generate for LLM responses")
+    LLM_TEMPERATURE: float = Field(default=0.2, description="LLM sampling temperature (0..1)")
 
     @model_validator(mode="before")
     @classmethod

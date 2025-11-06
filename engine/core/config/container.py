@@ -9,9 +9,20 @@ from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
 from engine.core.reporting.reporter import IReporter, RUN_REPORTER, InMemoryRunReporter, JsonlTailReporter
-from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
+from engine.core.commands import (
+    OpenHandler,
+    ClickHandler,
+    TypeHandler,
+    PressHandler,
+    WaitForHandler,
+    AssertVisibleHandler,
+    AssertTextHandler,
+    AssertUrlHandler,
+    CustomHandler,
+)
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
+from engine.core.resolving.snapshot_resolver import resolve_snapshot as _resolve_snapshot_impl
 from engine.core.llm.ollama_text import OllamaTextAdapter
 
 
@@ -30,12 +41,15 @@ def build_container() -> "Container":
 def _resolve_snapshot_stub(
     *, plan, html_path=None, tolerance: float, healer_depth: int
 ):
-    # Type-correct no-op result; preserves runner behavior until real pipeline lands
-    return {
-        "candidates": [],
-        "reason": f"stub(plan={getattr(plan, 'target_query', {})}, "
-        f"html_path={html_path}, tol={tolerance}, depth={healer_depth})",
-    }
+    # Delegate to real implementation (static HTML candidate catalog + semantic resolve)
+    try:
+        return _resolve_snapshot_impl(plan=plan, html_path=html_path, tolerance=tolerance, healer_depth=healer_depth)
+    except Exception:
+        # Best-effort fallback to an empty result to avoid breaking snapshot runs
+        return {
+            "candidates": [],
+            "reason": "snapshot_resolver_error",
+        }
 
 
 class StdoutLogger:
@@ -63,10 +77,15 @@ class InMemoryStorage:
     def record_step(self, step):
         return None
 
-    def finish_run(self, run_id):
+    def finish_run(self, run_id, stats: dict | None = None):
         rec = self._runs.get(str(run_id))
         if rec is not None:
             rec["finished"] = True
+            if stats is not None:
+                try:
+                    rec["stats"] = dict(stats)
+                except Exception:
+                    rec["stats"] = stats
 
     # ---- Minimal Locator Profiles (in-memory) ----
     def save_locator_profile(self, *, domain, tool: str, target_signature: dict, selector: dict) -> None:
@@ -163,8 +182,6 @@ class Container(containers.DeclarativeContainer):
 
     reporter: providers.Provider[IReporter | None] = providers.Callable(_build_reporter, settings)
 
-    element_resolver = providers.Factory(ElementResolver)
-
     # TODO: replace with actual resolve_snapshot service
 
     # Provide the callable directly for clarity
@@ -193,17 +210,30 @@ class Container(containers.DeclarativeContainer):
     # Playwright browser adapter (for Live Mode)
     playwright_browser = providers.Singleton(PlaywrightBrowser)
 
+    # Element resolver with access to browser (for lightweight live checks)
+    element_resolver = providers.Factory(ElementResolver, browser=playwright_browser)
+
     # Concrete action handlers using shared Playwright browser
     open_handler = providers.Factory(OpenHandler, browser=playwright_browser)
     click_handler = providers.Factory(ClickHandler, browser=playwright_browser)
     type_handler = providers.Factory(TypeHandler, browser=playwright_browser)
     press_handler = providers.Factory(PressHandler, browser=playwright_browser)
+    wait_handler = providers.Factory(WaitForHandler, browser=playwright_browser)
+    assert_visible_handler = providers.Factory(AssertVisibleHandler, browser=playwright_browser)
+    assert_text_handler = providers.Factory(AssertTextHandler, browser=playwright_browser)
+    assert_url_handler = providers.Factory(AssertUrlHandler, browser=playwright_browser)
+    custom_handler = providers.Factory(CustomHandler, browser=playwright_browser)
 
     action_handlers = providers.Dict(
         open=open_handler,
         click=click_handler,
         type=type_handler,
         press=press_handler,
+        waitFor=wait_handler,
+        assertVisible=assert_visible_handler,
+        assertText=assert_text_handler,
+        assertUrl=assert_url_handler,
+        custom=custom_handler,
     )
 
     snapshot_runner = providers.Factory(
@@ -238,6 +268,8 @@ class Container(containers.DeclarativeContainer):
             getattr(s, "OLLAMA_BASE_URL", "http://ollama:11434"),
             getattr(s, "OLLAMA_MODEL", "llama3.1"),
             timeout=float(getattr(s, "LLM_TIMEOUT_SECONDS", 10.0) or 10.0),
+            max_tokens=int(getattr(s, "LLM_MAX_TOKENS", 256) or 256),
+            temperature=float(getattr(s, "LLM_TEMPERATURE", 0.2) or 0.2),
         )
         if bool(getattr(s, "LLM_ENABLED", False))
         else None,
