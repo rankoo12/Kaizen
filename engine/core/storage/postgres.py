@@ -193,6 +193,20 @@ class PostgresStorage:
     def next_job(self) -> Optional[dict]:
         with self._conn() as conn:
             with conn.cursor() as cur:
+                # Requeue stale running jobs based on lease timeout (seconds)
+                try:
+                    import os as _os
+                    lease = int(_os.environ.get("KAIZEN_QUEUE_LEASE_SEC", "300") or 300)
+                except Exception:
+                    lease = 300
+                try:
+                    cur.execute(
+                        "UPDATE queue SET status='queued', updated_at=NOW() "
+                        "WHERE status='running' AND updated_at < NOW() - (%s || ' seconds')::interval",
+                        (str(int(lease)),),
+                    )
+                except Exception:
+                    pass
                 cur.execute(
                     """
                     SELECT id, job_id, payload FROM queue
