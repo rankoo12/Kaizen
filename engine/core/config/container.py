@@ -9,7 +9,17 @@ from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
 from engine.core.reporting.reporter import IReporter, RUN_REPORTER, InMemoryRunReporter, JsonlTailReporter
-from engine.core.commands import OpenHandler, ClickHandler, TypeHandler, PressHandler
+from engine.core.commands import (
+    OpenHandler,
+    ClickHandler,
+    TypeHandler,
+    PressHandler,
+    WaitForHandler,
+    AssertVisibleHandler,
+    AssertTextHandler,
+    AssertUrlHandler,
+    CustomHandler,
+)
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
 from engine.core.resolving.snapshot_resolver import resolve_snapshot as _resolve_snapshot_impl
@@ -208,12 +218,22 @@ class Container(containers.DeclarativeContainer):
     click_handler = providers.Factory(ClickHandler, browser=playwright_browser)
     type_handler = providers.Factory(TypeHandler, browser=playwright_browser)
     press_handler = providers.Factory(PressHandler, browser=playwright_browser)
+    wait_handler = providers.Factory(WaitForHandler, browser=playwright_browser)
+    assert_visible_handler = providers.Factory(AssertVisibleHandler, browser=playwright_browser)
+    assert_text_handler = providers.Factory(AssertTextHandler, browser=playwright_browser)
+    assert_url_handler = providers.Factory(AssertUrlHandler, browser=playwright_browser)
+    custom_handler = providers.Factory(CustomHandler, browser=playwright_browser)
 
     action_handlers = providers.Dict(
         open=open_handler,
         click=click_handler,
         type=type_handler,
         press=press_handler,
+        waitFor=wait_handler,
+        assertVisible=assert_visible_handler,
+        assertText=assert_text_handler,
+        assertUrl=assert_url_handler,
+        custom=custom_handler,
     )
 
     snapshot_runner = providers.Factory(
