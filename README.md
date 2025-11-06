@@ -24,6 +24,7 @@ Key Environment Variables (all map from KAIZEN_* to Settings)
   - `KAIZEN_OLLAMA_BASE_URL=http://host.docker.internal:11434`, `KAIZEN_OLLAMA_MODEL=llama3.1` (when using local Ollama).
 - Live navigation policy
   - `KAIZEN_ALLOWED_URL_SCHEMES=https://,http://,about:blank,data:` (comma-separated).
+  - Defaults restrict to `about:blank` and `data:`; explicitly add `https://,http://` when you want to navigate in live runs.
  - Browser/Timeouts
    - `KAIZEN_PW_TIMEOUT_MS=10000` default per-action timeout (ms). Lower to fail faster (e.g., 5000).
    - `KAIZEN_PW_NAV_TIMEOUT_MS=15000` navigation timeout (ms).
@@ -173,6 +174,14 @@ Troubleshooting
   - Verify site loads: run headed (`KAIZEN_HEADFUL=true`) and watch the page.
   - Inspect per-run log at `/api/runs/{run_id}/artifacts/log` for timing and failed selectors.
 - Resolver oddities: if an element repeatedly fails to resolve, fetch the per-run log via `GET /api/runs/{run_id}/artifacts` and share it; extend ranking/selector synthesis based on evidence.
+
+Documentation
+- Project Guide: `docs/PROJECT_GUIDE.md`
+- Observability: `docs/observability.md`
+- CI (Jenkins): `docs/CI_JENKINS.md`
+- Security Policy: `docs/SECURITY.md`
+- Architecture Decisions: `docs/ADRs/`
+- Project Plan (live): `docs/KAIZEN_PLAN.md`
 
 License
 - See LICENSE.
