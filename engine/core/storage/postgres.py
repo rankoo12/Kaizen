@@ -97,6 +97,15 @@ class PostgresStorage:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)
+                # Best-effort additive schema updates for multitenancy
+                try:
+                    cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_tenant ON runs(tenant_id)")
+                except Exception:
+                    pass
 
     # ---- Run lifecycle (compat with orchestrator) ----
     def start_run(self, test_id: str, website: str | None = None) -> str:
@@ -156,7 +165,7 @@ class PostgresStorage:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT run_id, website, extract(epoch from started_at), extract(epoch from finished_at), stats FROM runs WHERE run_id=%s",
+                    "SELECT run_id, website, extract(epoch from started_at), extract(epoch from finished_at), stats, tenant_id FROM runs WHERE run_id=%s",
                     (run_id,),
                 )
                 row = cur.fetchone()
@@ -170,6 +179,7 @@ class PostgresStorage:
                     "finished": float(row[3]) if row[3] is not None else None,
                     "status": status,
                     "stats": row[4] if isinstance(row[4], dict) else (json.loads(row[4]) if row[4] else {}),
+                    "tenant_id": row[5],
                 }
 
     # ---- Suites ----
@@ -253,6 +263,14 @@ class PostgresStorage:
                     "UPDATE queue SET status='running', run_id=%s, updated_at=NOW() WHERE job_id=%s",
                     (run_id, job_id),
                 )
+                # Propagate tenant_id from queue payload to runs row when available
+                try:
+                    cur.execute("SELECT payload->>'tenant_id' FROM queue WHERE job_id=%s", (job_id,))
+                    row = cur.fetchone()
+                    if row and row[0] and run_id:
+                        cur.execute("UPDATE runs SET tenant_id=%s WHERE run_id=%s", (row[0], run_id))
+                except Exception:
+                    pass
 
     def complete(self, job_id: str, run_id: str | None = None) -> None:
         with self._conn() as conn:
@@ -378,10 +396,19 @@ class PostgresStorage:
     def create_api_key(self, tenant_id: str, api_key: str) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO api_keys(tenant_id, api_key) VALUES (%s, %s) ON CONFLICT (api_key) DO NOTHING",
-                    (tenant_id, api_key),
-                )
+                # Store only a hash of the API key. Fallback to plaintext insert only if hashing fails.
+                try:
+                    import hashlib as _hash
+                    api_hash = _hash.sha256(api_key.encode("utf-8")).hexdigest()
+                    cur.execute(
+                        "INSERT INTO api_keys(tenant_id, api_key_hash) VALUES (%s, %s) ON CONFLICT (api_key_hash) DO NOTHING",
+                        (tenant_id, api_hash),
+                    )
+                except Exception:
+                    cur.execute(
+                        "INSERT INTO api_keys(tenant_id, api_key) VALUES (%s, %s) ON CONFLICT (api_key) DO NOTHING",
+                        (tenant_id, api_key),
+                    )
 
     def resolve_tenant(self, api_key: str | None) -> str | None:
         if not api_key:

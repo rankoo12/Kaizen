@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
 import engine.core.reporting.reporter as reporter_mod
 
@@ -25,6 +25,7 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         since: float | None = Query(default=None, description="Unix epoch seconds; include runs started at or after"),
         offset: int = Query(default=0, ge=0, description="Offset for simple pagination"),
         after: str | None = Query(default=None, description="Cursor: return runs after this run_id"),
+        request: Request | None = None,
     ):
         """List recent runs from reporter; best-effort DB fallback when available.
 
@@ -85,10 +86,22 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
             if hasattr(st, "_conn"):
                 args: list[Any] = []
                 sql = (
-                    "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats "
+                    "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats, tenant_id "
                     "FROM runs"
                 )
                 where = []
+                # Tenant filter when multitenancy is enforced and API key resolves
+                try:
+                    from engine.core.config.settings import settings as _settings
+                    if getattr(_settings, "MULTITENANT_ENFORCED", False) and request is not None:
+                        resolver = getattr(st, "resolve_tenant", None)
+                        tenant_id = resolver(request.headers.get("X-API-Key")) if callable(resolver) else None
+                        if tenant_id is None:
+                            return {"runs": [], "total": 0, "offset": offset, "limit": limit}
+                        where.append("tenant_id IS NOT DISTINCT FROM %s")
+                        args.append(tenant_id)
+                except Exception:
+                    pass
                 if since is not None:
                     where.append("started_at >= to_timestamp(%s)")
                     args.append(float(since))

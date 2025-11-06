@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, HTTPException
 import itertools
 import time
 
@@ -96,7 +96,7 @@ def register_queue_routes(app: FastAPI) -> None:
                     resolver = getattr(_storage, "resolve_tenant", None)
                     tenant_check = resolver(api_key) if callable(resolver) else None
                     if not tenant_check:
-                        return {"error": "unauthorized"}
+                        raise HTTPException(status_code=401, detail="unauthorized")
             except Exception:
                 pass
             payload = dict(body or {})
@@ -258,7 +258,7 @@ def register_queue_routes(app: FastAPI) -> None:
                     from engine.core.config.settings import settings as _settings
 
                     if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
-                        return {"error": "unauthorized"}
+                        raise HTTPException(status_code=401, detail="unauthorized")
                 except Exception:
                     pass
                 return _storage.state(tenant=tenant_id)
