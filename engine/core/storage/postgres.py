@@ -16,20 +16,56 @@ class PostgresStorage:
         return psycopg.connect(self._dsn, autocommit=True)
 
     def _ensure_schema(self) -> None:
-        ddl_runs = (
+        ddl = (
             """
+            -- runs table
             CREATE TABLE IF NOT EXISTS runs (
               id SERIAL PRIMARY KEY,
               run_id TEXT UNIQUE,
               test_id TEXT,
+              website TEXT NULL,
               started_at TIMESTAMPTZ DEFAULT NOW(),
               finished_at TIMESTAMPTZ,
               stats JSONB
             );
-            """
-        )
-        ddl_profiles = (
-            """
+            CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at DESC);
+
+            -- steps table (minimal for future expansion)
+            CREATE TABLE IF NOT EXISTS steps (
+              id SERIAL PRIMARY KEY,
+              run_id TEXT,
+              idx INT,
+              ts TIMESTAMPTZ DEFAULT NOW(),
+              tool TEXT,
+              args_redacted JSONB,
+              ok BOOL,
+              reason TEXT,
+              signature JSONB
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_steps_run_idx ON steps(run_id, idx);
+
+            -- suites table
+            CREATE TABLE IF NOT EXISTS suites (
+              id SERIAL PRIMARY KEY,
+              suite_id TEXT UNIQUE,
+              spec JSONB,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
+            -- durable queue
+            CREATE TABLE IF NOT EXISTS queue (
+              id SERIAL PRIMARY KEY,
+              job_id TEXT UNIQUE,
+              payload JSONB,
+              status TEXT,
+              run_id TEXT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW(),
+              updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_queue_status_created ON queue(status, created_at);
+
+            -- locator profiles (learning)
             CREATE TABLE IF NOT EXISTS locator_profiles (
               id SERIAL PRIMARY KEY,
               domain TEXT,
@@ -45,23 +81,47 @@ class PostgresStorage:
         )
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(ddl_runs)
-                cur.execute(ddl_profiles)
+                cur.execute(ddl)
 
     # ---- Run lifecycle (compat with orchestrator) ----
-    def start_run(self, test_id: str) -> str:
+    def start_run(self, test_id: str, website: str | None = None) -> str:
         run_id = f"run-{int(time.time())}-{test_id}"
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO runs(run_id, test_id) VALUES (%s, %s) ON CONFLICT (run_id) DO NOTHING",
-                    (run_id, test_id),
-                )
+                if website:
+                    cur.execute(
+                        "INSERT INTO runs(run_id, test_id, website) VALUES (%s, %s, %s) ON CONFLICT (run_id) DO NOTHING",
+                        (run_id, test_id, website),
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO runs(run_id, test_id) VALUES (%s, %s) ON CONFLICT (run_id) DO NOTHING",
+                        (run_id, test_id),
+                    )
         return run_id
 
     def record_step(self, step: dict) -> None:
-        # Not persisted yet; placeholder for future expanded schema
-        return None
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO steps(run_id, idx, ts, tool, args_redacted, ok, reason, signature)
+                        VALUES (%s, %s, NOW(), %s, %s::jsonb, %s, %s, %s::jsonb)
+                        ON CONFLICT (run_id, idx) DO NOTHING
+                        """,
+                        (
+                            step.get("run_id"),
+                            int(step.get("index", 0) or 0),
+                            step.get("tool"),
+                            json.dumps(step.get("args_redacted", {})),
+                            bool(step.get("ok", False)),
+                            step.get("reason"),
+                            json.dumps(step.get("signature", {})),
+                        ),
+                    )
+        except Exception:
+            return None
 
     def finish_run(self, run_id: str, stats: dict | None = None) -> None:
         with self._conn() as conn:
@@ -76,6 +136,124 @@ class PostgresStorage:
                         "UPDATE runs SET finished_at=NOW(), stats=%s::jsonb WHERE run_id=%s",
                         (json.dumps(stats), run_id),
                     )
+
+    def get_run(self, run_id: str) -> Optional[dict]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT run_id, website, extract(epoch from started_at), extract(epoch from finished_at), stats FROM runs WHERE run_id=%s",
+                    (run_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                status = "finished" if row[3] is not None else "running"
+                return {
+                    "run_id": row[0],
+                    "website": row[1],
+                    "started": float(row[2] or 0),
+                    "finished": float(row[3]) if row[3] is not None else None,
+                    "status": status,
+                    "stats": row[4] if isinstance(row[4], dict) else (json.loads(row[4]) if row[4] else {}),
+                }
+
+    # ---- Suites ----
+    def save_suite(self, suite_id: str, spec: dict) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO suites(suite_id, spec) VALUES (%s, %s::jsonb)
+                    ON CONFLICT (suite_id) DO UPDATE SET spec=EXCLUDED.spec, updated_at=NOW()
+                    """,
+                    (suite_id, json.dumps(spec)),
+                )
+
+    def get_suite(self, suite_id: str) -> Optional[dict]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT suite_id, spec FROM suites WHERE suite_id=%s", (suite_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                spec = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else {})
+                return {"suite_id": row[0], "spec": spec}
+
+    # ---- Durable Queue ----
+    def enqueue(self, payload: dict) -> str:
+        job_id = f"job-{int(time.time()*1000)}"
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO queue(job_id, payload, status) VALUES (%s, %s::jsonb, 'queued')",
+                    (job_id, json.dumps(payload or {})),
+                )
+        return job_id
+
+    def next_job(self) -> Optional[dict]:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, job_id, payload FROM queue
+                    WHERE status='queued'
+                    ORDER BY created_at
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                    """
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                qid, job_id, payload = row
+                cur.execute(
+                    "UPDATE queue SET status='running', updated_at=NOW() WHERE id=%s",
+                    (qid,),
+                )
+                try:
+                    obj = payload if isinstance(payload, dict) else json.loads(payload)
+                except Exception:
+                    obj = {}
+                obj["job_id"] = job_id
+                return obj
+
+    def mark_running(self, job_id: str, run_id: str | None = None) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE queue SET status='running', run_id=%s, updated_at=NOW() WHERE job_id=%s",
+                    (run_id, job_id),
+                )
+
+    def complete(self, job_id: str, run_id: str | None = None) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE queue SET status='completed', run_id=%s, updated_at=NOW() WHERE job_id=%s",
+                    (run_id, job_id),
+                )
+
+    def state(self) -> dict:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT job_id FROM queue WHERE status='queued' ORDER BY created_at LIMIT 200"
+                )
+                queued = [{"job_id": r[0]} for r in (cur.fetchall() or [])]
+                cur.execute(
+                    "SELECT job_id, run_id FROM queue WHERE status='running' ORDER BY updated_at DESC LIMIT 200"
+                )
+                running = [
+                    {"job_id": r[0], "run_id": r[1]} for r in (cur.fetchall() or [])
+                ]
+                cur.execute(
+                    "SELECT job_id, run_id, extract(epoch from updated_at) FROM queue WHERE status='completed' ORDER BY updated_at DESC LIMIT 50"
+                )
+                completed = [
+                    {"job_id": r[0], "run_id": r[1], "ts": float(r[2] or 0)}
+                    for r in (cur.fetchall() or [])
+                ]
+        return {"queued": queued, "running": running, "completed": completed}
 
     # ---- Locator Profiles ----
     def save_locator_profile(self, *, domain: Optional[str], tool: str, target_signature: dict, selector: dict) -> None:
