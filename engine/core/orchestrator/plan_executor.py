@@ -19,7 +19,11 @@ from engine.core.llm.text_llm import ILLMText
 
 class DeterministicPlanExecutor(IPlanExecutor):
     """
-    Deterministic executor for validated plans with conservative safety.
+    Minimal, deterministic executor stub.
+
+    For now, this does not perform real browser actions; it records the
+    intention of each ToolCall and returns successful StepResult entries.
+    It can be extended to use IActionHandler/IBrowser without changing callers.
     """
 
     def __init__(
@@ -52,41 +56,37 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._profile_misses = 0
 
     def execute(self, plan: Plan, *, ctx: ExecCtx) -> List[StepResult]:
-        # reset per-run stats
+        # reset heal stats per execution
         self._heal_attempts = 0
         self._heal_successes = 0
         self._healer_mode_used = "none"
         self._llm_attempted = False
         self._det_attempted = False
+        # remember last successfully resolved clickable target to support
+        # glue-flow typing into the previously clicked field
         self._last_target: Any | None = None
         self._profile_hits = 0
         self._profile_misses = 0
 
         results: List[StepResult] = []
-        run_start = time.time()
         for idx, call in enumerate(plan):
-            # Run-level cap
-            try:
-                run_cap_ms = getattr(self._settings, "RUN_TIMEOUT_MS", None)
-                if run_cap_ms is not None and (time.time() - run_start) * 1000.0 > float(run_cap_ms):
-                    res = StepResult(ok=False, reason=R.TIMEOUT_RUN)
-                    results.append(res)
-                    self._emit_report(ctx, idx, call.get("tool") or "<none>", res)
-                    self._emit_metric(call.get("tool") or "<none>", res)
-                    break
-            except Exception:
-                pass
-
             step_start = time.time()
             tool = call.get("tool")
             args: dict[str, Any] = call.get("args", {})
 
+            # Safety checks beyond schema
             if not tool or not isinstance(args, dict):
                 res = StepResult(ok=False, reason=R.INVALID_TOOLCALL)
                 results.append(res)
                 self._emit_metric(tool or "<none>", res)
                 try:
-                    self._emit_report(ctx, idx, tool or "<none>", res, duration=(time.time() - step_start))
+                    self._emit_report(
+                        ctx,
+                        idx,
+                        tool or "<none>",
+                        res,
+                        duration=(time.time() - step_start),
+                    )
                 except Exception:
                     pass
                 continue
@@ -107,29 +107,44 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 self._emit_metric(tool, res)
                 continue
 
+            # Enforce offline-safe open policy
             if tool == "open":
                 url = args.get("url", "")
                 allowed = False
                 if isinstance(url, str):
-                    schemes = (getattr(self._settings, "ALLOWED_URL_SCHEMES", ["data:", "about:blank"]) or [])
+                    schemes = (
+                        getattr(
+                            self._settings,
+                            "ALLOWED_URL_SCHEMES",
+                            ["data:", "about:blank"],
+                        )
+                        or []
+                    )
                     for scheme in schemes:
                         if scheme == "about:blank":
-                            allowed = url == "about:blank"
+                            if url == "about:blank":
+                                allowed = True
+                                break
                         else:
                             if url.startswith(scheme):
                                 allowed = True
-                        if allowed:
-                            break
+                                break
                 if not allowed:
+                    # Fail fast: abort further steps when navigation is blocked
                     res = StepResult(ok=False, reason=R.URL_SCHEME_NOT_ALLOWED)
                     results.append(res)
-                    self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
+                    self._emit_report(
+                        ctx, idx, tool, res, duration=(time.time() - step_start)
+                    )
                     self._emit_metric(tool, res)
                     break
+
                 res = handler.execute(call, ctx)
                 results.append(res)
-                self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
-                # track domain for learning profiles
+                self._emit_report(
+                    ctx, idx, tool, res, duration=(time.time() - step_start)
+                )
+                # Track current domain for subsequent profile save/lookup
                 try:
                     if isinstance(url, str):
                         self._current_domain = self._extract_domain(url)
@@ -138,9 +153,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 self._emit_metric(tool, res)
                 continue
 
+            # Resolve target deterministically for interactive actions
             if tool in {"click", "type", "press"}:
                 target = args.get("target")
-                requires_target = tool in {"click", "type"}
+                # press/assertUrl/custom may not require a target
+                requires_target = tool in {"click", "type", "waitFor", "assertVisible", "assertText"}
                 if requires_target and not isinstance(target, dict):
                     res = StepResult(ok=False, reason=R.MISSING_TARGET)
                     results.append(res)
@@ -150,22 +167,40 @@ class DeterministicPlanExecutor(IPlanExecutor):
 
                 resolved = None
                 if isinstance(target, dict) and self._resolver is not None:
-                    finder: Callable[[dict], Any] | None = getattr(self._resolver, "find", None)
+                    # Prefer a 'find' method if available (duck-typing), else fallback
+                    finder: Callable[[dict], Any] | None = getattr(
+                        self._resolver, "find", None
+                    )
                     if callable(finder):
-                        timeout_ms = getattr(ctx, "timeout_ms", None)
+                        timeout_ms = ctx.timeout_ms
                         if timeout_ms is None:
-                            timeout_ms = getattr(self._settings, "EXEC_TIMEOUT_MS", None)
+                            timeout_ms = getattr(
+                                self._settings, "EXEC_TIMEOUT_MS", None
+                            )
                         if timeout_ms is None:
+                            # Legacy immediate behavior
                             try:
                                 candidates = finder(target) or []
                             except Exception:
                                 candidates = []
                             if len(candidates) != 1:
-                                reason = R.RESOLVE_ZERO if len(candidates) == 0 else R.RESOLVE_MULTI
-                                healed = self._try_heal(tool, target, reason, handler, call, ctx)
+                                reason = (
+                                    R.RESOLVE_ZERO
+                                    if len(candidates) == 0
+                                    else R.RESOLVE_MULTI
+                                )
+                                healed = self._try_heal(
+                                    tool, target, reason, handler, call, ctx
+                                )
                                 if healed is not None:
                                     results.append(healed)
-                                    self._emit_report(ctx, idx, tool, healed, extra=getattr(self, '_last_heal_extra', None))
+                                    self._emit_report(
+                                        ctx,
+                                        idx,
+                                        tool,
+                                        healed,
+                                        extra=getattr(self, "_last_heal_extra", None),
+                                    )
                                     self._emit_metric(tool, healed)
                                     continue
                                 res = StepResult(ok=False, reason=reason)
@@ -175,12 +210,22 @@ class DeterministicPlanExecutor(IPlanExecutor):
                                 continue
                             resolved = candidates[0]
                         else:
-                            resolved_candidate, timed_out = self._poll_resolve(finder, target, int(timeout_ms))
+                            resolved_candidate, timed_out = self._poll_resolve(
+                                finder, target, timeout_ms
+                            )
                             if resolved_candidate is None:
-                                healed = self._try_heal(tool, target, R.TIMEOUT_RESOLVE, handler, call, ctx)
+                                healed = self._try_heal(
+                                    tool, target, R.TIMEOUT_RESOLVE, handler, call, ctx
+                                )
                                 if healed is not None:
                                     results.append(healed)
-                                    self._emit_report(ctx, idx, tool, healed, extra=getattr(self, '_last_heal_extra', None))
+                                    self._emit_report(
+                                        ctx,
+                                        idx,
+                                        tool,
+                                        healed,
+                                        extra=getattr(self, "_last_heal_extra", None),
+                                    )
                                     self._emit_metric(tool, healed)
                                     continue
                                 res = StepResult(ok=False, reason=R.TIMEOUT_RESOLVE)
@@ -190,10 +235,19 @@ class DeterministicPlanExecutor(IPlanExecutor):
                                 continue
                             resolved = resolved_candidate
                     else:
-                        healed = self._try_heal(tool, target, R.RESOLVER_NO_FIND, handler, call, ctx)
+                        # No live snapshot available for resolve(); require a finder
+                        healed = self._try_heal(
+                            tool, target, R.RESOLVER_NO_FIND, handler, call, ctx
+                        )
                         if healed is not None:
                             results.append(healed)
-                            self._emit_report(ctx, idx, tool, healed, extra=getattr(self, '_last_heal_extra', None))
+                            self._emit_report(
+                                ctx,
+                                idx,
+                                tool,
+                                healed,
+                                extra=getattr(self, "_last_heal_extra", None),
+                            )
                             self._emit_metric(tool, healed)
                             continue
                         res = StepResult(ok=False, reason=R.RESOLVER_NO_FIND)
@@ -202,66 +256,172 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         self._emit_metric(tool, res)
                         continue
 
-                # typing convenience: if generic, reuse last click
-                if tool == "type" and (resolved is None) and getattr(self, "_last_target", None) is not None:
-                    resolved = self._last_target
+                # If typing with a generic/ambiguous target, prefer last clicked element
+                if tool == "type":
+                    try:
+                        t = target or {}
+                        t_is_generic = False
+                        if isinstance(t, dict):
+                            # generic hints often used by glue path
+                            if (t.get("text") == "input") or (t.get("css") == "input"):
+                                t_is_generic = True
+                        # If the previous step was a click and succeeded (we store _last_target only on success),
+                        # prefer typing into that element regardless of the current target specificity.
+                        try:
+                            prev_was_click = False
+                            if idx > 0:
+                                prev = plan[idx - 1] if isinstance(plan, list) else None
+                                prev_was_click = (
+                                    isinstance(prev, dict)
+                                    and prev.get("tool") == "click"
+                                )
+                        except Exception:
+                            prev_was_click = False
+                        if (
+                            getattr(self, "_last_target", None) is not None
+                            and prev_was_click
+                        ):
+                            resolved = self._last_target
+                        elif (resolved is None or t_is_generic) and getattr(
+                            self, "_last_target", None
+                        ) is not None:
+                            resolved = self._last_target
+                    except Exception:
+                        pass
 
+                # Attach resolved info for handlers via meta (non-schema execution detail)
                 if resolved is not None:
                     meta = dict(call.get("meta") or {})
                     meta["resolved"] = resolved
                     call["meta"] = meta
 
+                # Click safety policy
                 if tool == "click":
                     safety_reason = self._check_click_safety(resolved)
                     if safety_reason is not None:
-                        healed = self._try_heal(tool, target or {}, safety_reason, handler, call, ctx)
+                        healed = self._try_heal(
+                            tool, target or {}, safety_reason, handler, call, ctx
+                        )
                         if healed is not None:
                             results.append(healed)
-                            self._emit_report(ctx, idx, tool, healed, extra=getattr(self, '_last_heal_extra', None))
+                            self._emit_report(
+                                ctx,
+                                idx,
+                                tool,
+                                healed,
+                                extra=getattr(self, "_last_heal_extra", None),
+                            )
                             self._emit_metric(tool, healed)
                             continue
-                        res = StepResult(ok=False, reason=safety_reason, signature=self._build_signature(resolved or {}))
+                        res = StepResult(
+                            ok=False,
+                            reason=safety_reason,
+                            signature=self._build_signature(resolved),
+                        )
                         results.append(res)
-                        self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
+                        self._emit_report(
+                            ctx, idx, tool, res, duration=(time.time() - step_start)
+                        )
                         self._emit_metric(tool, res)
                         continue
 
                 res = handler.execute(call, ctx)
-                actual_resolved = (call.get("meta") or {}).get("resolved") or resolved
-                if actual_resolved is not None and isinstance(res, StepResult) and res.signature is None:
+                # Attach signature based on the actual selector used. Handlers may
+                # update call["meta"]["resolved"] when they apply fallbacks.
+                actual_resolved = None
+                try:
+                    actual_resolved = (call.get("meta") or {}).get(
+                        "resolved"
+                    ) or resolved
+                except Exception:
+                    actual_resolved = resolved
+                if (
+                    actual_resolved is not None
+                    and isinstance(res, StepResult)
+                    and res.signature is None
+                ):
                     res.signature = self._build_signature(actual_resolved)
-                # healing retry on click failure
+                # If a click failed, attempt healer recovery as a secondary path
                 if tool == "click" and isinstance(res, StepResult) and not res.ok:
-                    failure_reason = getattr(res, "reason", None) or R.CLICK_TIMEOUT
-                    healed = self._try_heal(tool, target or {}, failure_reason, handler, call, ctx)
+                    try:
+                        failure_reason = getattr(res, "reason", None) or R.CLICK_TIMEOUT
+                    except Exception:
+                        failure_reason = R.CLICK_TIMEOUT
+                    healed = self._try_heal(
+                        tool, target or {}, failure_reason, handler, call, ctx
+                    )
                     if healed is not None:
                         results.append(healed)
-                        self._emit_report(ctx, idx, tool, healed, duration=(time.time() - step_start), extra=getattr(self, '_last_heal_extra', None))
+                        self._emit_report(
+                            ctx,
+                            idx,
+                            tool,
+                            healed,
+                            duration=(time.time() - step_start),
+                            extra=getattr(self, "_last_heal_extra", None),
+                        )
                         self._emit_metric(tool, healed)
                         continue
-
                 results.append(res)
-                self._emit_report(ctx, idx, tool, res, duration=(time.time() - step_start))
+                self._emit_report(
+                    ctx, idx, tool, res, duration=(time.time() - step_start)
+                )
                 try:
-                    if isinstance(res, StepResult) and res.ok and actual_resolved is not None:
+                    if (
+                        isinstance(res, StepResult)
+                        and res.ok
+                        and actual_resolved is not None
+                    ):
                         self._maybe_save_profile(tool, res, actual_resolved)
                         if tool == "click":
+                            # remember last successful click target for subsequent type steps
                             self._last_target = actual_resolved
                 except Exception:
                     pass
                 self._emit_metric(tool, res)
                 continue
 
-            # unsupported
+            # Unsupported tools for now
             res = StepResult(ok=False, reason=R.UNSUPPORTED_TOOL)
             results.append(res)
-            self._emit_report(ctx, idx, tool or "<none>", res, duration=(time.time() - step_start))
+            self._emit_report(
+                ctx, idx, tool or "<none>", res, duration=(time.time() - step_start)
+            )
             self._emit_metric(tool or "<none>", res)
+        # Best-effort final screenshot for portal/runner artifacts
+        try:
+            if self._browser is not None:
+                from pathlib import Path
 
+                logs_dir = getattr(_settings, "LOGS_DIR", Path("logs"))
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                out = logs_dir / f"screenshot-{getattr(ctx, 'run_id', 'run')}.png"
+                # run browser.screenshot in place (handlers already use run_coro when available)
+                take = getattr(self._browser, "screenshot", None)
+                if callable(take):
+                    try:
+                        # try sync helper first if present
+                        rc = getattr(self._browser, "run_coro", None)
+                        if callable(rc):
+                            rc(self._browser.screenshot(str(out)))
+                        else:
+                            # not ideal, but for local adapters fall back to async run
+                            import asyncio
+
+                            asyncio.run(self._browser.screenshot(str(out)))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return results
 
     def get_last_heal_stats(self) -> dict:
-        mode = "llm" if getattr(self, "_llm_attempted", False) else ("deterministic" if getattr(self, "_det_attempted", False) else "none")
+        # Determine final healer mode used with precedence: llm > deterministic > none
+        mode = (
+            "llm"
+            if getattr(self, "_llm_attempted", False)
+            else ("deterministic" if getattr(self, "_det_attempted", False) else "none")
+        )
         attempts = int(getattr(self, "_heal_attempts", 0) or 0)
         successes = int(getattr(self, "_heal_successes", 0) or 0)
         rate = successes / attempts if attempts else 0.0
@@ -281,7 +441,9 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 return int(n.timestamp() * 1000)
         return int(time.time() * 1000)
 
-    def _poll_resolve(self, finder: Callable[[dict], Any], target: dict, timeout_ms: int) -> tuple[Any | None, bool]:
+    def _poll_resolve(
+        self, finder: Callable[[dict], Any], target: dict, timeout_ms: int
+    ) -> tuple[Any | None, bool]:
         start = self._now_ms()
         attempts = 0
         while True:
@@ -296,12 +458,14 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 return None, True
             if (self._now_ms() - start) > timeout_ms:
                 return None, True
+            # brief backoff to avoid busy-spinning the CPU
             try:
                 time.sleep(0.05)
             except Exception:
                 pass
 
     def _check_click_safety(self, candidate: Any) -> str | None:
+        # Fail-closed default: missing flags are treated as False
         visible = False
         enabled = False
         if isinstance(candidate, dict):
@@ -321,44 +485,34 @@ class DeterministicPlanExecutor(IPlanExecutor):
         if not isinstance(candidate, dict):
             return {}
         sig: dict = {}
+        # direct fields
         for key in ("id", "classes", "role", "name", "visible", "enabled"):
             if key in candidate:
                 sig[key] = candidate.get(key)
+        # normalized testid from attrs/testid/data-testid
         attrs = candidate.get("attrs") or {}
         if isinstance(attrs, dict):
             testid = attrs.get("data-testid") or attrs.get("testid")
             if testid:
                 sig["testid"] = testid
-        for key_src, key_dst in (("ariaLabel", "aria_label"), ("placeholder", "placeholder"), ("type", "type"), ("tag", "tag")):
-            v = candidate.get(key_src)
-            if v is None and key_src != key_dst:
-                v = candidate.get(key_dst)
-            if v is not None:
-                sig[key_dst] = v
-        if candidate.get("svgClasses"):
-            try:
-                sc = str(candidate.get("svgClasses") or "").lower()
-                sig["svgClasses"] = sc[:200]
-            except Exception:
-                pass
-        try:
-            txt = candidate.get("text")
-            if isinstance(txt, str) and txt.strip():
-                low = txt.strip().lower()
-                import re as _re
-                toks = [_t for _t in _re.findall(r"[a-z0-9]+", low) if len(_t) >= 3]
-                if toks:
-                    sig["text_tokens"] = toks[:4]
-        except Exception:
-            pass
+        # locator basics if present
         for key in ("type", "value"):
             if key in candidate:
                 sig[key] = candidate.get(key)
+        # neighborText if provided by resolver/caller
         if "neighborText" in candidate:
             sig["neighborText"] = candidate.get("neighborText")
         return sig
 
-    def _emit_report(self, ctx: ExecCtx, index: int, tool: str, res: StepResult, duration: float | None = None, extra: dict | None = None) -> None:
+    def _emit_report(
+        self,
+        ctx: ExecCtx,
+        index: int,
+        tool: str,
+        res: StepResult,
+        duration: float | None = None,
+        extra: dict | None = None,
+    ) -> None:
         if not self._reporter:
             return
         payload = {
@@ -373,27 +527,41 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 payload["duration"] = float(duration)
             except Exception:
                 pass
-        if self._settings and getattr(self._settings, "REPORT_STEP_HEAL_FLAGS", False) and extra:
+        # Optional per-step enrichment (healing flags)
+        if (
+            self._settings
+            and getattr(self._settings, "REPORT_STEP_HEAL_FLAGS", False)
+            and extra
+        ):
             payload.update(extra)
         self._reporter.on_step(payload)
 
     def _emit_metric(self, tool: str, res: StepResult) -> None:
         if not self._reporter:
             return
-        inc = getattr(self._reporter, "on_metric", None) or getattr(self._reporter, "increment", None)
-        if callable(inc):
+        metric = getattr(self._reporter, "on_metric", None) or getattr(
+            self._reporter, "increment", None
+        )
+        if callable(metric):
             try:
-                inc("executor_step_total", {"tool": tool, "ok": bool(res.ok), "reason": res.reason or "none"})
-            except Exception:
-                try:
-                    inc("executor_step_total")
-                except Exception:
-                    pass
+                metric(
+                    "executor_step_total",
+                    tags={
+                        "tool": tool,
+                        "ok": bool(res.ok),
+                        "reason": res.reason or "none",
+                    },
+                )
+            except TypeError:
+                # best-effort in case reporter signature differs
+                metric("executor_step_total")
 
     def _increment(self, name: str, tags: dict | None = None) -> None:
         if not self._reporter:
             return
-        inc = getattr(self._reporter, "increment", None) or getattr(self._reporter, "on_metric", None)
+        inc = getattr(self._reporter, "increment", None) or getattr(
+            self._reporter, "on_metric", None
+        )
         if callable(inc):
             try:
                 inc(name, tags or {})
@@ -411,54 +579,104 @@ class DeterministicPlanExecutor(IPlanExecutor):
     ) -> StepResult | None:
         if not self._settings or not getattr(self._settings, "HEALER_ENABLED", False):
             return None
+        # Choose path
+        path = getattr(self._settings, "HEALER_PATH", "deterministic")
         healed = None
-        # Choose path based on settings
-        path = str(getattr(self._settings, "HEALER_PATH", "deterministic") or "deterministic").lower()
-        # 1) LLM-assisted proposal
-        if path == "llm" and self._llm is not None:
+        # OTel Phase 1: trace heal attempts
+        _span_ctx = None
+        try:
+            from opentelemetry import trace as _trace
+
+            tracer = _trace.get_tracer("kaizen.engine.heal")
+            _span_ctx = tracer.start_as_current_span("heal.attempt")
+            _span_cm = _span_ctx.__enter__()
             try:
-                self._heal_attempts += 1
-                self._llm_attempted = True
-                self._increment("healer_attempts_total", {"strategy": "llm", "tool": tool})
-                proposal = self._llm_propose(target, failure_reason)
-                if isinstance(proposal, dict) and isinstance(proposal.get("primary"), dict):
-                    primary = proposal["primary"]
-                    primary.setdefault("visible", True)
-                    primary.setdefault("enabled", True)
-                    meta = dict(call.get("meta") or {})
-                    meta["resolved"] = primary
-                    call["meta"] = meta
-                    if tool == "click":
-                        safety_reason = self._check_click_safety(primary)
-                        if safety_reason is not None:
-                            return StepResult(ok=False, reason=safety_reason, signature=self._build_signature(primary))
-                    res = handler.execute(call, ctx)
-                    if isinstance(res, StepResult) and res.signature is None:
-                        res.signature = self._build_signature(primary)
-                    if isinstance(res, StepResult) and res.ok:
-                        self._heal_successes += 1
-                        self._increment("healer_successes_total", {"tool": tool})
-                        self._last_heal_extra = {"healed": True, "healer": "llm", "confidence": float(proposal.get("confidence", 0.0) or 0.0)}
-                        try:
-                            self._maybe_save_profile(tool, res, primary)
-                            if tool == "click":
-                                self._last_target = primary
-                        except Exception:
-                            pass
-                        return res
+                _span_cm.set_attribute("tool", tool)
+                _span_cm.set_attribute("reason", failure_reason)
             except Exception:
                 pass
-        # 2) Deterministic healer
-        try:
-            # Profile-assisted deterministic healer
-            if self._healer is not None:
+        except Exception:
+            _span_ctx = None
+        if path == "llm" and self._llm is not None:
+            # Attempt LLM first
+            self._heal_attempts += 1
+            self._llm_attempted = True
+            self._increment("healer_attempts_total", {"strategy": "llm", "tool": tool})
+            healed = self._llm_propose(target, failure_reason)
+            if healed is None and self._healer is not None:
+                # fallback to deterministic heuristics
                 self._heal_attempts += 1
                 self._det_attempted = True
-                self._increment("healer_attempts_total", {"strategy": "deterministic", "tool": tool})
-                healed = self._healer.heal({"reason": failure_reason, "target": target}, {"tool": tool, "run_id": ctx.run_id, "domain": getattr(self, "_current_domain", None)})
+                self._increment(
+                    "healer_attempts_total", {"strategy": "deterministic", "tool": tool}
+                )
+                healed = self._healer.heal(
+                    {"reason": failure_reason, "target": target},
+                    {
+                        "tool": tool,
+                        "run_id": ctx.run_id,
+                        "domain": getattr(self, "_current_domain", None),
+                    },
+                )
+        else:
+            if self._healer is None:
+                # close span if opened
+                try:
+                    if _span_ctx is not None:
+                        _span_cm = getattr(_span_ctx, "__exit__", None)
+                        if callable(_span_cm):
+                            _span_ctx.__exit__(None, None, None)
+                except Exception:
+                    pass
+                return None
+            self._heal_attempts += 1
+            self._det_attempted = True
+            self._increment(
+                "healer_attempts_total", {"strategy": "deterministic", "tool": tool}
+            )
+            healed = self._healer.heal(
+                {"reason": failure_reason, "target": target},
+                {
+                    "tool": tool,
+                    "run_id": ctx.run_id,
+                    "domain": getattr(self, "_current_domain", None),
+                },
+            )
+
+        # close span with outcome
+        try:
+            if _span_ctx is not None:
+                ok = bool(
+                    healed
+                    and isinstance(healed, dict)
+                    and isinstance(healed.get("primary"), dict)
+                )
+                _span_cm = getattr(_span_ctx, "__enter__", None)
+                # _span_ctx is an active context manager; get current span to set attrs
+                from opentelemetry import trace as _trace
+
+                span = _trace.get_current_span()
+                try:
+                    span.set_attribute(
+                        "strategy",
+                        (
+                            "llm"
+                            if getattr(self, "_llm_attempted", False)
+                            else (
+                                "deterministic"
+                                if getattr(self, "_det_attempted", False)
+                                else "none"
+                            )
+                        ),
+                    )
+                    span.set_attribute("success", ok)
+                except Exception:
+                    pass
+                _span_ctx.__exit__(None, None, None)
         except Exception:
-            healed = None
+            pass
         if not healed or not isinstance(healed, dict):
+            # Count a profile miss when healing attempted without a profile hit
             try:
                 if getattr(self, "_storage", None) is not None:
                     self._profile_misses += 1
@@ -474,22 +692,42 @@ class DeterministicPlanExecutor(IPlanExecutor):
         if tool == "click":
             safety_reason = self._check_click_safety(primary)
             if safety_reason is not None:
-                return StepResult(ok=False, reason=safety_reason, signature=self._build_signature(primary))
+                return StepResult(
+                    ok=False,
+                    reason=safety_reason,
+                    signature=self._build_signature(primary),
+                )
         res = handler.execute(call, ctx)
         if isinstance(res, StepResult) and res.signature is None:
             res.signature = self._build_signature(primary)
         if isinstance(res, StepResult) and res.ok:
             self._heal_successes += 1
             self._increment("healer_successes_total", {"tool": tool})
+            # capture per-step enrichment
+            self._last_heal_extra = {
+                "healed": True,
+                "healer": (
+                    "llm"
+                    if self._llm_attempted
+                    else ("deterministic" if self._det_attempted else "none")
+                ),
+                "confidence": (
+                    float(healed.get("confidence", 0.0))
+                    if isinstance(healed, dict)
+                    else 0.0
+                ),
+            }
             try:
                 self._maybe_save_profile(tool, res, primary)
             except Exception:
                 pass
+            # Ensure subsequent type uses the healed click target
             try:
                 if tool == "click":
                     self._last_target = primary
             except Exception:
                 pass
+            # Profile KPIs: count hits when healer used a stored profile
             try:
                 if isinstance(healed, dict) and healed.get("reason") == "profile_hit":
                     self._profile_hits += 1
@@ -514,35 +752,56 @@ class DeterministicPlanExecutor(IPlanExecutor):
         target_signature = res.signature or {}
         save = getattr(self._storage, "save_locator_profile", None)
         if callable(save):
-            save(domain=getattr(self, "_current_domain", None), tool=tool, target_signature=target_signature, selector=selector)
+            save(
+                domain=getattr(self, "_current_domain", None),
+                tool=tool,
+                target_signature=target_signature,
+                selector=selector,
+            )
 
     def _llm_propose(self, target: dict, reason: str) -> dict | None:
-        if self._llm is None:
-            return None
         try:
             import json
+
             prompt = (
                 "Propose CSS selector candidates as JSON for the target. "
-                "Respond as {\"primary\":{\"type\":\"css\",\"value\": string}, \"fallbacks\":[...], \"confidence\": 0..1}."
+                'Respond as {"primary":{"type":"css","value": '
+                'string}, "fallbacks":[...], "confidence": 0..1}.'
             )
             ctx = {"reason": reason, "target": target}
             raw = self._llm.ask(json.dumps(ctx))
             data = json.loads(raw)
-            if isinstance(data, dict) and "primary" not in data and "type" in data and "value" in data:
+            # Normalize minimal forms
+            if (
+                isinstance(data, dict)
+                and "primary" not in data
+                and "type" in data
+                and "value" in data
+            ):
                 data = {"primary": data, "fallbacks": [], "confidence": 0.5}
             if not isinstance(data, dict):
                 return None
             primary = data.get("primary")
             if not isinstance(primary, dict):
                 return None
-            if primary.get("type") != "css" or not isinstance(primary.get("value"), str):
+            # Ensure minimal locator fields
+            if primary.get("type") != "css" or not isinstance(
+                primary.get("value"), str
+            ):
                 return None
+            # Mark safe flags if absent
             primary.setdefault("visible", True)
             primary.setdefault("enabled", True)
-            fallbacks = data.get("fallbacks") if isinstance(data.get("fallbacks"), list) else []
+            fallbacks = (
+                data.get("fallbacks") if isinstance(data.get("fallbacks"), list) else []
+            )
             norm_fallbacks = []
             for f in fallbacks:
-                if isinstance(f, dict) and f.get("type") == "css" and isinstance(f.get("value"), str):
+                if (
+                    isinstance(f, dict)
+                    and f.get("type") == "css"
+                    and isinstance(f.get("value"), str)
+                ):
                     f.setdefault("visible", True)
                     f.setdefault("enabled", True)
                     norm_fallbacks.append(f)
@@ -559,7 +818,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
     def _extract_domain(self, url: str) -> str | None:
         try:
             from urllib.parse import urlparse
+
             u = urlparse(url)
-            return (u.hostname or "").lower() if u.hostname else None
+            host = u.hostname
+            if not host:
+                return None
+            return host.lower()
         except Exception:
             return None
