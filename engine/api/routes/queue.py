@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 import itertools
 import time
 
@@ -84,10 +84,20 @@ def register_queue_routes(app: FastAPI) -> None:
         pass
 
     @router.post("/queue/runs")
-    async def enqueue_run(body: Dict[str, Any]):
+    async def enqueue_run(body: Dict[str, Any], request: Request):
         # Prefer durable queue when available
         if _storage is not None and hasattr(_storage, "enqueue"):
             payload = dict(body or {})
+            # Attach tenant_id from API key if resolvable
+            try:
+                api_key = request.headers.get("X-API-Key")
+                res = getattr(_storage, "resolve_tenant", None)
+                if callable(res):
+                    tenant_id = res(api_key)
+                    if tenant_id:
+                        payload["tenant_id"] = tenant_id
+            except Exception:
+                pass
             _inject_traceparent(payload)
             try:
                 job_id = _storage.enqueue(payload)
@@ -225,10 +235,13 @@ def register_queue_routes(app: FastAPI) -> None:
         return {"ok": True}
 
     @router.get("/queue/state")
-    async def get_state():
+    async def get_state(request: Request):
         if _storage is not None and hasattr(_storage, "state"):
             try:
-                return _storage.state()
+                api_key = request.headers.get("X-API-Key")
+                res = getattr(_storage, "resolve_tenant", None)
+                tenant_id = res(api_key) if callable(res) else None
+                return _storage.state(tenant=tenant_id)
             except Exception:
                 pass
         queued = [{"job_id": j.get("job_id")} for j in list(_QUEUE)]
