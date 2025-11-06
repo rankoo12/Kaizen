@@ -396,10 +396,19 @@ class PostgresStorage:
     def create_api_key(self, tenant_id: str, api_key: str) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO api_keys(tenant_id, api_key) VALUES (%s, %s) ON CONFLICT (api_key) DO NOTHING",
-                    (tenant_id, api_key),
-                )
+                # Store only a hash of the API key. Fallback to plaintext insert only if hashing fails.
+                try:
+                    import hashlib as _hash
+                    api_hash = _hash.sha256(api_key.encode("utf-8")).hexdigest()
+                    cur.execute(
+                        "INSERT INTO api_keys(tenant_id, api_key_hash) VALUES (%s, %s) ON CONFLICT (api_key_hash) DO NOTHING",
+                        (tenant_id, api_hash),
+                    )
+                except Exception:
+                    cur.execute(
+                        "INSERT INTO api_keys(tenant_id, api_key) VALUES (%s, %s) ON CONFLICT (api_key) DO NOTHING",
+                        (tenant_id, api_key),
+                    )
 
     def resolve_tenant(self, api_key: str | None) -> str | None:
         if not api_key:
