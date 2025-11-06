@@ -88,8 +88,10 @@ class PostgresStorage:
               id SERIAL PRIMARY KEY,
               tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
               api_key TEXT UNIQUE,
+              api_key_hash TEXT,
               created_at TIMESTAMPTZ DEFAULT NOW()
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(api_key_hash);
             """
         )
         with self._conn() as conn:
@@ -386,6 +388,22 @@ class PostgresStorage:
             return None
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT tenant_id FROM api_keys WHERE api_key=%s", (api_key,))
-                row = cur.fetchone()
-                return row[0] if row else None
+                # Prefer hash-based lookup; fallback to plaintext if unavailable
+                try:
+                    import hashlib as _hash
+
+                    api_hash = _hash.sha256(api_key.encode("utf-8")).hexdigest()
+                    cur.execute("SELECT tenant_id FROM api_keys WHERE api_key_hash=%s", (api_hash,))
+                    row = cur.fetchone()
+                    if row:
+                        return row[0]
+                except Exception:
+                    pass
+                try:
+                    cur.execute("SELECT tenant_id FROM api_keys WHERE api_key=%s", (api_key,))
+                    row = cur.fetchone()
+                    if row:
+                        return row[0]
+                except Exception:
+                    pass
+                return None
