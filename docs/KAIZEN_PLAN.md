@@ -35,9 +35,9 @@ P0 — Reliability First
    - DoD: waitFor/assertVisible/assertText/assertUrl/custom handlers wired in DI and executor target resolution; README examples added later.
    - Tests: Unit per handler; simple integration via executor can follow.
 
-2) Guardrails for planner + rate limit — STATUS: 🟨
-   - DoD: `/api/plan/preview` enforces JSON-only with glue fallback, 429 on bursts, timeouts.
-   - Tests: Validator unit tests; API tests for 429 and glue path.
+2) Guardrails for planner + rate limit — STATUS: 🟩
+   - DoD: `/api/plan/preview` enforces JSON-only with glue fallback, 429 on bursts, timeouts, few‑shots added; input caps.
+   - Tests: API tests for 429 and glue path (`engine/tests/api/test_plan_preview_guardrails.py`).
 
 3) Postgres migrations + durable queue (Phase A) — STATUS: 🟨
    - DoD: Alembic creates runs/steps/suites/queue/selectors with indexes; queue uses SKIP LOCKED; in-memory path preserved.
