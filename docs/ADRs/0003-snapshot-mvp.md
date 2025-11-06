@@ -1,4 +1,4 @@
-# ADR 0002 — Snapshot MVP & E2E Smoke
+# ADR 0003 - Snapshot MVP & E2E Smoke
 
 - **Status:** Accepted
 - **Date:** 2025-10-16
