@@ -39,3 +39,37 @@ def db_tables():
     except Exception:
         names = []
     return {"tables": names}
+
+
+@router.post("/tenants")
+def create_tenant(body: dict):
+    tid = (body or {}).get("tenant_id")
+    name = (body or {}).get("name")
+    if not isinstance(tid, str) or not tid:
+        return {"ok": False, "error": "tenant_id required"}
+    st = Container().storage()
+    fn = getattr(st, "create_tenant", None)
+    if callable(fn):
+        try:
+            fn(tid, name)
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    return {"ok": False, "error": "storage_missing"}
+
+
+@router.post("/api-keys")
+def create_api_key(body: dict):
+    tid = (body or {}).get("tenant_id")
+    key = (body or {}).get("api_key")
+    if not isinstance(tid, str) or not tid or not isinstance(key, str) or not key:
+        return {"ok": False, "error": "tenant_id and api_key required"}
+    st = Container().storage()
+    fn = getattr(st, "create_api_key", None)
+    if callable(fn):
+        try:
+            fn(tid, key)
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    return {"ok": False, "error": "storage_missing"}
