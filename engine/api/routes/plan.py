@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from engine.core.config.container import Container
 from engine.core.validation.plan_validator import validate_plan, PlanValidationError
@@ -30,10 +31,12 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
     if isinstance(ctx.get("html"), str) and len(ctx["html"]) < 4000:
         extras.append("HTML snippet provided (truncated).")
     header = "\n".join([preface] + extras)
-    example = (
-        "Example: 'press enter' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n\n"
+    fewshots = (
+        "Example: 'press enter' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n"
+        "Example: 'click Login' -> [{\"tool\":\"click\",\"args\":{\"target\":{\"text\":\"Login\"}}}]\n"
+        "Example: 'type hello' -> [{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"input\"},\"text\":\"hello\"}}]\n\n"
     )
-    return f"{header}\n{example}Instruction: {text}\nJSON:"
+    return f"{header}\n{fewshots}Instruction: {text}\nJSON:"
 
 def _glue_map(text: str) -> list[dict]:
     """Deterministic fallback mapping from plain text to minimal tool calls.
@@ -73,16 +76,49 @@ def _glue_map(text: str) -> list[dict]:
 
 
 @router.post("/plan/preview")
-def preview_plan(body: Dict[str, Any]) -> Dict[str, Any]:
+def preview_plan(request: Request, body: Dict[str, Any]) -> Dict[str, Any]:
     text = (body or {}).get("text")
     context = (body or {}).get("context") or {}
     if not isinstance(text, str) or not text.strip():
         raise HTTPException(status_code=400, detail="'text' is required")
 
     container = Container()
+    # Rate limit per API key (preferred) or client IP
+    try:
+        st = container.settings()
+        window = int(getattr(st, "PREVIEW_RATE_WINDOW_SEC", 60) or 60)
+        max_req = int(getattr(st, "PREVIEW_RATE_MAX_REQUESTS", 30) or 30)
+    except Exception:
+        window, max_req = 60, 30
+    # simple per-process sliding window limiter
+    global _rl_store
+    try:
+        _rl_store
+    except NameError:
+        _rl_store = {}
+    now = int(time.time())
+    key = request.headers.get("X-API-Key") or (request.client.host if request.client else "global")
+    bucket = _rl_store.setdefault(str(key), [])
+    cutoff = now - window + 1
+    bucket[:] = [ts for ts in bucket if ts >= cutoff]
+    if len(bucket) >= max_req:
+        raise HTTPException(status_code=429, detail="rate limit exceeded")
+    bucket.append(now)
     llm = container.llm_text()
     if llm is None:
         raise HTTPException(status_code=501, detail="LLM is not enabled (set KAIZEN_LLM_ENABLED=true)")
+
+    # Input caps
+    try:
+        max_text = int(getattr(st, "PREVIEW_INPUT_TEXT_MAX_CHARS", 500) or 500)
+        max_html = int(getattr(st, "PREVIEW_CONTEXT_HTML_MAX_CHARS", 4000) or 4000)
+    except Exception:
+        max_text, max_html = 500, 4000
+    if len(text) > max_text:
+        text = text[:max_text]
+    if isinstance(context.get("html"), str) and len(context["html"]) > max_html:
+        context = dict(context)
+        context["html"] = context["html"][:max_html]
 
     prompt = _build_prompt(text, context)
     raw: str
@@ -137,10 +173,14 @@ def preview_plan(body: Dict[str, Any]) -> Dict[str, Any]:
     # 3) Heuristic: bracket slice from the raw string
     if not isinstance(plan, list):
         try:
-            start = raw.find("[")
-            end = raw.rfind("]") + 1
+            raw2 = raw.strip()
+            if raw2.startswith("```"):
+                # strip code fences like ```json\n...\n```
+                raw2 = raw2.strip("`")
+            start = raw2.find("[")
+            end = raw2.rfind("]") + 1
             if start >= 0 and end > start:
-                plan = json.loads(raw[start:end])
+                plan = json.loads(raw2[start:end])
         except Exception:
             plan = None
     if plan is None or not isinstance(plan, list):
