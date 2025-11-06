@@ -14,6 +14,13 @@ _COMPLETED: Dict[str, Dict[str, Any]] = {}  # job_id -> {job_id, run_id, ts}
 
 def register_queue_routes(app: FastAPI) -> None:
     router = APIRouter(prefix="/api", tags=["queue"])
+    # Optional Postgres-backed storage for durable queue
+    _storage = None
+    try:
+        from engine.core.config.container import Container  # lazy import
+        _storage = Container().storage()
+    except Exception:
+        _storage = None
 
     def _inject_traceparent(job: Dict[str, Any]) -> None:
         try:
@@ -78,6 +85,22 @@ def register_queue_routes(app: FastAPI) -> None:
 
     @router.post("/queue/runs")
     async def enqueue_run(body: Dict[str, Any]):
+        # Prefer durable queue when available
+        if _storage is not None and hasattr(_storage, "enqueue"):
+            payload = dict(body or {})
+            _inject_traceparent(payload)
+            try:
+                job_id = _storage.enqueue(payload)
+            except Exception:
+                job_id = None
+            if not job_id:
+                return {"error": "enqueue_failed"}
+            try:
+                print(f"[queue] enqueue pg job_id={job_id}")
+            except Exception:
+                pass
+            return {"job_id": job_id}
+        # In-memory fallback
         job_id = f"job-{next(_COUNTER)}"
         job = {"job_id": job_id, **(body or {})}
         _inject_traceparent(job)
@@ -90,6 +113,22 @@ def register_queue_routes(app: FastAPI) -> None:
 
     @router.get("/queue/next")
     async def next_job():
+        if _storage is not None and hasattr(_storage, "next_job"):
+            try:
+                job = _storage.next_job()
+            except Exception:
+                job = None
+            if not job:
+                try:
+                    print("[queue] next pg: empty")
+                except Exception:
+                    pass
+                return {"job": None}
+            try:
+                print(f"[queue] next pg: dispatch job_id={job.get('job_id')}")
+            except Exception:
+                pass
+            return {"job": job}
         if not _QUEUE:
             try:
                 print("[queue] next: empty")
@@ -125,7 +164,15 @@ def register_queue_routes(app: FastAPI) -> None:
                 "url": "about:blank",
             }
         _inject_traceparent(job)
-        _QUEUE.append(job)
+        if _storage is not None and hasattr(_storage, "enqueue"):
+            try:
+                jid = _storage.enqueue(job)
+                if jid:
+                    job_id = jid
+            except Exception:
+                pass
+        else:
+            _QUEUE.append(job)
         try:
             print(f"[queue] enqueue sample job_id={job_id} kind={kind}")
         except Exception:
@@ -138,10 +185,19 @@ def register_queue_routes(app: FastAPI) -> None:
         if not job_id:
             return {"ok": False, "error": "job_id required"}
         run_id = body.get("run_id")
-        rec = _RUNNING.get(job_id) or {"job_id": job_id}
-        if run_id:
-            rec["run_id"] = str(run_id)
-        _RUNNING[job_id] = rec
+        if _storage is not None and hasattr(_storage, "mark_running"):
+            try:
+                _storage.mark_running(job_id, run_id=str(run_id) if run_id else None)
+            except Exception:
+                return {"ok": False}
+            rec = {"job_id": job_id}
+            if run_id:
+                rec["run_id"] = str(run_id)
+        else:
+            rec = _RUNNING.get(job_id) or {"job_id": job_id}
+            if run_id:
+                rec["run_id"] = str(run_id)
+            _RUNNING[job_id] = rec
         try:
             print(f"[queue] running: job_id={job_id} run_id={rec.get('run_id')}")
         except Exception:
@@ -155,7 +211,12 @@ def register_queue_routes(app: FastAPI) -> None:
             return {"ok": False, "error": "job_id required"}
         rec = _RUNNING.pop(job_id, None)
         run_id = body.get("run_id")
-        if run_id:
+        if _storage is not None and hasattr(_storage, "complete"):
+            try:
+                _storage.complete(job_id, run_id=str(run_id) if run_id else None)
+            except Exception:
+                return {"ok": False}
+        elif run_id:
             _COMPLETED[job_id] = {"job_id": job_id, "run_id": str(run_id), "ts": time.time()}
         try:
             print(f"[queue] complete: job_id={job_id} run_id={run_id}")
@@ -165,14 +226,22 @@ def register_queue_routes(app: FastAPI) -> None:
 
     @router.get("/queue/state")
     async def get_state():
+        if _storage is not None and hasattr(_storage, "state"):
+            try:
+                return _storage.state()
+            except Exception:
+                pass
         queued = [{"job_id": j.get("job_id")} for j in list(_QUEUE)]
         running = list(_RUNNING.values())
-        # include recent completions (best-effort), most-recent first
         completed = sorted(_COMPLETED.values(), key=lambda r: r.get("ts", 0), reverse=True)[:50]
         return {"queued": queued, "running": running, "completed": completed}
 
     @router.get("/queue/completed/{job_id}")
     async def get_completed(job_id: str):
+        if _storage is not None and hasattr(_storage, "state"):
+            st = _storage.state()
+            rec = next((j for j in st.get("completed", []) if str(j.get("job_id")) == str(job_id)), None)
+            return {"job": rec}
         rec = _COMPLETED.get(str(job_id))
         return {"job": rec}
 

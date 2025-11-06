@@ -107,6 +107,26 @@ sbom:
 		echo No SBOM tool found \(syft/cyclonedx-py\). Skipping.; \
 	fi
 
+# ---------- Database (optional Alembic; fallback script) ----------
+.PHONY: db-upgrade
+db-upgrade:
+	@echo >> Ensuring DB schema (Alekbic if available; fallback script)
+	@if command -v alembic >/dev/null 2>&1; then \
+		alembic -c alembic.ini upgrade head || true ; \
+	else \
+		echo alembic not installed \(skipping\); \
+	fi
+	$(PYTHON) scripts/db_upgrade.py || true
+
+.PHONY: db-revision
+db-revision:
+	@echo >> Creating Alembic revision \(if alembic installed\)
+	@if command -v alembic >/dev/null 2>&1; then \
+		alembic -c alembic.ini revision -m "$$MSG" || true ; \
+	else \
+		echo alembic not installed \(skipping\); \
+	fi
+
 # ---------- Housekeeping ----------
 .PHONY: clean
 clean:

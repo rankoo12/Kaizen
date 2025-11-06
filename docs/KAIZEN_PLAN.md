@@ -39,9 +39,9 @@ P0 — Reliability First
    - DoD: `/api/plan/preview` enforces JSON-only with glue fallback, 429 on bursts, timeouts, few‑shots added; input caps.
    - Tests: API tests for 429 and glue path (`engine/tests/api/test_plan_preview_guardrails.py`).
 
-3) Postgres migrations + durable queue (Phase A) — STATUS: 🟨
-   - DoD: Alembic creates runs/steps/suites/queue/selectors with indexes; queue uses SKIP LOCKED; in-memory path preserved.
-   - Tests: Integration for enqueue/claim/finish; idempotence; PG toggle.
+3) Postgres migrations + durable queue (Phase A) — STATUS: 🟩
+   - DoD: Schema for runs/steps/suites/queue/locator_profiles added; queue uses SKIP LOCKED; in-memory path preserved.
+   - Tests: Integration for enqueue/claim/finish; idempotence; PG toggle (see engine/tests/integration/test_postgres_storage_basic.py and test_postgres_queue_api.py).
 
 4) Runner agent and concurrency — STATUS: 🟨
    - DoD: Multiple runners process jobs; requeue on worker death; metrics reflect queue depth.
