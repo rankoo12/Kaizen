@@ -75,6 +75,20 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = Field(default=256, description="Max tokens to generate for LLM responses")
     LLM_TEMPERATURE: float = Field(default=0.2, description="LLM sampling temperature (0..1)")
 
+    # Planner preview guardrails (rate limit + input caps)
+    PREVIEW_RATE_WINDOW_SEC: int = Field(
+        default=60, description="Rate limit window size in seconds for /api/plan/preview"
+    )
+    PREVIEW_RATE_MAX_REQUESTS: int = Field(
+        default=30, description="Max requests per window per key for /api/plan/preview"
+    )
+    PREVIEW_INPUT_TEXT_MAX_CHARS: int = Field(
+        default=500, description="Max characters allowed in 'text' for plan preview"
+    )
+    PREVIEW_CONTEXT_HTML_MAX_CHARS: int = Field(
+        default=4000, description="Max characters of HTML context allowed in plan preview"
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):
