@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 import itertools
 import time
 
@@ -84,10 +84,32 @@ def register_queue_routes(app: FastAPI) -> None:
         pass
 
     @router.post("/queue/runs")
-    async def enqueue_run(body: Dict[str, Any]):
+    async def enqueue_run(body: Dict[str, Any], request: Request):
         # Prefer durable queue when available
         if _storage is not None and hasattr(_storage, "enqueue"):
+            # Enforce API key if multitenancy is enabled
+            try:
+                from engine.core.config.settings import settings as _settings
+
+                if getattr(_settings, "MULTITENANT_ENFORCED", False):
+                    api_key = request.headers.get("X-API-Key") if request else None
+                    resolver = getattr(_storage, "resolve_tenant", None)
+                    tenant_check = resolver(api_key) if callable(resolver) else None
+                    if not tenant_check:
+                        return {"error": "unauthorized"}
+            except Exception:
+                pass
             payload = dict(body or {})
+            # Attach tenant_id from API key if resolvable
+            try:
+                api_key = request.headers.get("X-API-Key")
+                res = getattr(_storage, "resolve_tenant", None)
+                if callable(res):
+                    tenant_id = res(api_key)
+                    if tenant_id:
+                        payload["tenant_id"] = tenant_id
+            except Exception:
+                pass
             _inject_traceparent(payload)
             try:
                 job_id = _storage.enqueue(payload)
@@ -225,10 +247,21 @@ def register_queue_routes(app: FastAPI) -> None:
         return {"ok": True}
 
     @router.get("/queue/state")
-    async def get_state():
+    async def get_state(request: Request):
         if _storage is not None and hasattr(_storage, "state"):
             try:
-                return _storage.state()
+                api_key = request.headers.get("X-API-Key")
+                res = getattr(_storage, "resolve_tenant", None)
+                tenant_id = res(api_key) if callable(res) else None
+                # If multitenancy is enforced, reject when no tenant is found
+                try:
+                    from engine.core.config.settings import settings as _settings
+
+                    if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
+                        return {"error": "unauthorized"}
+                except Exception:
+                    pass
+                return _storage.state(tenant=tenant_id)
             except Exception:
                 pass
         queued = [{"job_id": j.get("job_id")} for j in list(_QUEUE)]

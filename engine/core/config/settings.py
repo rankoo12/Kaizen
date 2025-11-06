@@ -89,6 +89,15 @@ class Settings(BaseSettings):
         default=4000, description="Max characters of HTML context allowed in plan preview"
     )
 
+    # Multitenancy and admin
+    MULTITENANT_ENFORCED: bool = Field(
+        default=False,
+        description="Require API key and enforce tenant isolation on queue/state APIs",
+    )
+    ADMIN_SECRET: str | None = Field(
+        default=None, description="Shared secret for admin endpoints via X-Admin-Secret header"
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):
