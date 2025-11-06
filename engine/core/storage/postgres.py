@@ -77,6 +77,19 @@ class PostgresStorage:
             );
             CREATE INDEX IF NOT EXISTS idx_profiles_domain_tool ON locator_profiles(domain, tool);
             CREATE INDEX IF NOT EXISTS idx_profiles_sig ON locator_profiles USING GIN (target_signature);
+
+            -- multi-tenant basics
+            CREATE TABLE IF NOT EXISTS tenants (
+              id SERIAL PRIMARY KEY,
+              tenant_id TEXT UNIQUE,
+              name TEXT
+            );
+            CREATE TABLE IF NOT EXISTS api_keys (
+              id SERIAL PRIMARY KEY,
+              tenant_id TEXT REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+              api_key TEXT UNIQUE,
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
             """
         )
         with self._conn() as conn:
@@ -247,22 +260,40 @@ class PostgresStorage:
                     (run_id, job_id),
                 )
 
-    def state(self) -> dict:
+    def state(self, tenant: str | None = None) -> dict:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT job_id FROM queue WHERE status='queued' ORDER BY created_at LIMIT 200"
-                )
+                if tenant:
+                    cur.execute(
+                        "SELECT job_id FROM queue WHERE status='queued' AND (payload->>'tenant_id') IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 200",
+                        (tenant,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT job_id FROM queue WHERE status='queued' ORDER BY created_at LIMIT 200"
+                    )
                 queued = [{"job_id": r[0]} for r in (cur.fetchall() or [])]
-                cur.execute(
-                    "SELECT job_id, run_id FROM queue WHERE status='running' ORDER BY updated_at DESC LIMIT 200"
-                )
+                if tenant:
+                    cur.execute(
+                        "SELECT job_id, run_id FROM queue WHERE status='running' AND (payload->>'tenant_id') IS NOT DISTINCT FROM %s ORDER BY updated_at DESC LIMIT 200",
+                        (tenant,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT job_id, run_id FROM queue WHERE status='running' ORDER BY updated_at DESC LIMIT 200"
+                    )
                 running = [
                     {"job_id": r[0], "run_id": r[1]} for r in (cur.fetchall() or [])
                 ]
-                cur.execute(
-                    "SELECT job_id, run_id, extract(epoch from updated_at) FROM queue WHERE status='completed' ORDER BY updated_at DESC LIMIT 50"
-                )
+                if tenant:
+                    cur.execute(
+                        "SELECT job_id, run_id, extract(epoch from updated_at) FROM queue WHERE status='completed' AND (payload->>'tenant_id') IS NOT DISTINCT FROM %s ORDER BY updated_at DESC LIMIT 50",
+                        (tenant,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT job_id, run_id, extract(epoch from updated_at) FROM queue WHERE status='completed' ORDER BY updated_at DESC LIMIT 50"
+                    )
                 completed = [
                     {"job_id": r[0], "run_id": r[1], "ts": float(r[2] or 0)}
                     for r in (cur.fetchall() or [])
@@ -332,3 +363,29 @@ class PostgresStorage:
                     except Exception:
                         return None
         return None
+
+    # ---- Tenants / API Keys ----
+    def create_tenant(self, tenant_id: str, name: str | None = None) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO tenants(tenant_id, name) VALUES (%s, %s) ON CONFLICT (tenant_id) DO NOTHING",
+                    (tenant_id, name),
+                )
+
+    def create_api_key(self, tenant_id: str, api_key: str) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO api_keys(tenant_id, api_key) VALUES (%s, %s) ON CONFLICT (api_key) DO NOTHING",
+                    (tenant_id, api_key),
+                )
+
+    def resolve_tenant(self, api_key: str | None) -> str | None:
+        if not api_key:
+            return None
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT tenant_id FROM api_keys WHERE api_key=%s", (api_key,))
+                row = cur.fetchone()
+                return row[0] if row else None
