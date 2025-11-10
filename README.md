@@ -1,4 +1,4 @@
-﻿Kaizen ׳’ג‚¬ג€ Engine + Portal (Current Status)
+﻿Kaizen Engine + Portal (Current Status)
 
 Overview
 - Monorepo with a deterministic web test engine (FastAPI) and a minimal portal backend.
@@ -9,7 +9,7 @@ Quick Start
   - Start services: `docker compose -f infra/docker-compose.yml up -d`
   - Open Engine API docs: http://localhost:8080/api/docs
   - Open Portal API (simple UI served at root): http://localhost:8081/
-  - Open Grafana (Observability): http://localhost:3000 (admin/admin)
+  - Open Grafana (Observability): http://localhost:3000
   - Open Prometheus: http://localhost:9090
   - Open Jaeger: http://localhost:16686
   - Optional (LLM via local Ollama):
