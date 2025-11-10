@@ -282,7 +282,13 @@ class EngineOrchestrator(IOrchestrator):
                 typed = text.split(" ", 1)[1].strip()
                 plan.append({"tool": "type", "args": {"target": {"text": "input"}, "text": typed}})
             elif lower.startswith("press "):
-                key = text.split(" ", 1)[1].strip()
+                key_raw = text.split(" ", 1)[1].strip()
+                try:
+                    from engine.core.parsing.keys import normalize_key_name
+
+                    key = normalize_key_name(key_raw)
+                except Exception:
+                    key = key_raw
                 plan.append({"tool": "press", "args": {"key": key}})
 
         # Validate and execute
