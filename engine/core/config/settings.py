@@ -108,6 +108,14 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str | None = Field(default=None)
     MINIO_SECURE: bool = Field(default=True)
 
+    # Queue/API rate limits (AuthN/Z hardening)
+    QUEUE_RATE_WINDOW_SEC: int = Field(
+        default=60, description="Rate limit window (seconds) for /api/queue/*"
+    )
+    QUEUE_RATE_MAX_REQUESTS: int = Field(
+        default=60, description="Max requests per window per key for /api/queue/*"
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):
