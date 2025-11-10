@@ -12,6 +12,34 @@ def _init_otel(service_name: str = "kaizen-engine-api") -> None:
         return
     try:
         import os
+        from urllib.parse import urlparse
+        import socket
+
+        # Soft-disable by default unless explicitly enabled or endpoint is resolvable.
+        def _truthy(v: str | None) -> bool:
+            return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+        explicitly_enabled = _truthy(os.environ.get("KAIZEN_OTEL_ENABLED"))
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318")
+        host_to_check = None
+        try:
+            u = urlparse(endpoint)
+            host_to_check = u.hostname or None
+            port_to_check = u.port or (4318 if (u.scheme or "http").startswith("http") else 4317)
+        except Exception:
+            host_to_check = None
+            port_to_check = 4318
+
+        if not explicitly_enabled:
+            try:
+                if not host_to_check:
+                    # No clear host -> disable
+                    return
+                # Quick DNS check; if fails, skip instrumentation to avoid noisy exporter errors
+                socket.getaddrinfo(host_to_check, port_to_check)
+            except Exception:
+                return
+
         from opentelemetry import trace, metrics
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
@@ -27,7 +55,6 @@ def _init_otel(service_name: str = "kaizen-engine-api") -> None:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
 
-        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318")
         res = Resource.create({"service.name": service_name})
 
         # Traces
