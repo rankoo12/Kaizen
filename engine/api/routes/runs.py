@@ -97,7 +97,7 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                         resolver = getattr(st, "resolve_tenant", None)
                         tenant_id = resolver(request.headers.get("X-API-Key")) if callable(resolver) else None
                         if tenant_id is None:
-                            return {"runs": [], "total": 0, "offset": offset, "limit": limit}
+                            raise HTTPException(status_code=401, detail="unauthorized")
                         where.append("tenant_id IS NOT DISTINCT FROM %s")
                         args.append(tenant_id)
                 except Exception:
