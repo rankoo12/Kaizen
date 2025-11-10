@@ -176,6 +176,8 @@ class SnapshotRunner:
             "suite": suite,
             "test": test_name,
             "run_id": run_id,
+            # Best-effort tenant_id for artifact scoping in FS backend
+            "tenant_id": (lambda st: (getattr(st, "get_run", lambda _r: {}) (run_id) or {}).get("tenant_id") if st else None)(self._storage),
             "html_path": html_path,
             "tolerance": settings.VISUAL_TOLERANCE,
             "healer_depth": settings.HEALER_DEPTH,
