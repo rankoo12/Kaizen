@@ -160,6 +160,16 @@ def register_queue_routes(app: FastAPI) -> None:
                 pass
             return {"job_id": job_id}
         # In-memory fallback
+        try:
+            from engine.core.config.settings import settings as _settings
+            if getattr(_settings, "MULTITENANT_ENFORCED", False):
+                api_key = request.headers.get("X-API-Key") if request else None
+                if not api_key:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         job_id = f"job-{next(_COUNTER)}"
         job = {"job_id": job_id, **(body or {})}
         _inject_traceparent(job)
@@ -304,6 +314,17 @@ def register_queue_routes(app: FastAPI) -> None:
                 return _storage.state(tenant=tenant_id)
             except Exception:
                 pass
+        # Enforce header presence in in-memory fallback path when enforced
+        try:
+            from engine.core.config.settings import settings as _settings
+            if getattr(_settings, "MULTITENANT_ENFORCED", False):
+                api_key = request.headers.get("X-API-Key") if request else None
+                if not api_key:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         queued = [{"job_id": j.get("job_id")} for j in list(_QUEUE)]
         running = list(_RUNNING.values())
         completed = sorted(_COMPLETED.values(), key=lambda r: r.get("ts", 0), reverse=True)[:50]
