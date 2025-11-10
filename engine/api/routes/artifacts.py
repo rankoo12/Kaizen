@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 from pathlib import Path
 from typing import Dict, Any
@@ -64,8 +64,43 @@ def _artifact_map(run_id: str) -> Dict[str, Path]:
     return items
 
 
+def _authorize_access(request: Request, run_id: str) -> None:
+    """Enforce multitenant access to artifacts based on run's tenant.
+
+    - When Postgres storage is active and MULTITENANT_ENFORCED is True:
+      * Require X-API-Key to resolve a tenant_id
+      * If the run has a tenant_id and it mismatches, hide as 404
+    - In other cases, allow access.
+    """
+    try:
+        from engine.core.config.settings import settings as _settings
+        from engine.core.config.container import Container as _C
+
+        if not getattr(_settings, "MULTITENANT_ENFORCED", False):
+            return
+        st = _C().storage()
+        # Resolve requester tenant
+        resolver = getattr(st, "resolve_tenant", None)
+        req_tid = resolver(request.headers.get("X-API-Key")) if callable(resolver) else None
+        if req_tid is None:
+            raise HTTPException(status_code=401, detail="unauthorized")
+        # Fetch run's tenant when available
+        getter = getattr(st, "get_run", None)
+        row = getter(run_id) if callable(getter) else None
+        run_tid = row.get("tenant_id") if isinstance(row, dict) else None
+        if run_tid is not None and run_tid != req_tid:
+            # Hide existence across tenants
+            raise HTTPException(status_code=404, detail="artifact not found")
+    except HTTPException:
+        raise
+    except Exception:
+        # Fail-open outside enforced path
+        return
+
+
 @router.get("/runs/{run_id}/artifacts")
-def list_artifacts(run_id: str) -> Dict[str, Any]:
+def list_artifacts(request: Request, run_id: str) -> Dict[str, Any]:
+    _authorize_access(request, run_id)
     store = get_store_from_settings(settings)
     items = []
     for it in store.list(run_id):
@@ -90,7 +125,8 @@ def _detect_media_type(path: Path) -> Tuple[str, bool]:
 
 
 @router.get("/runs/{run_id}/artifacts/{name}")
-def get_artifact(run_id: str, name: str):
+def get_artifact(request: Request, run_id: str, name: str):
+    _authorize_access(request, run_id)
     store = get_store_from_settings(settings)
     try:
         data, media_type = store.get_bytes(run_id, name)
