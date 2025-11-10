@@ -127,6 +127,12 @@ db-revision:
 		echo alembic not installed \(skipping\); \
 	fi
 
+# ---------- Artifacts Retention ----------
+.PHONY: artifacts-retain
+artifacts-retain:
+	@echo >> Pruning artifacts by retention settings
+	$(PYTHON) scripts/artifacts_retention.py || true
+
 # ---------- Housekeeping ----------
 .PHONY: clean
 clean:
