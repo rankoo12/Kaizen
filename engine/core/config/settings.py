@@ -98,6 +98,16 @@ class Settings(BaseSettings):
         default=None, description="Shared secret for admin endpoints via X-Admin-Secret header"
     )
 
+    # Artifacts storage
+    ARTIFACTS_BACKEND: Literal["fs", "minio"] = Field(
+        default="fs", description="Artifact store backend (fs|minio)"
+    )
+    MINIO_ENDPOINT: str | None = Field(default=None)
+    MINIO_BUCKET: str | None = Field(default=None)
+    MINIO_ACCESS_KEY: str | None = Field(default=None)
+    MINIO_SECRET_KEY: str | None = Field(default=None)
+    MINIO_SECURE: bool = Field(default=True)
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):
