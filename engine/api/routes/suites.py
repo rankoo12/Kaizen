@@ -123,4 +123,110 @@ def register_suite_routes(app: FastAPI, orchestrator) -> None:
             raise HTTPException(status_code=500, detail=f"run error: {e!s}")
         return {"run_id": run_id}
 
+    # ---- CRUD verbs ----
+
+    @router.put("/suites/{suite_id}")
+    async def put_suite(request: Request, suite_id: str, body: Dict[str, Any]):
+        spec = _normalize_spec(body)
+        # Prefer storage if available
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        if st is not None and hasattr(st, "save_suite"):
+            # Resolve tenant and enforce when required
+            tenant_id = None
+            try:
+                res = getattr(st, "resolve_tenant", None)
+                if callable(res):
+                    tenant_id = res(request.headers.get("X-API-Key"))
+                from engine.core.config.settings import settings as _settings
+                if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+            except HTTPException:
+                raise
+            except Exception:
+                tenant_id = None
+            try:
+                st.save_suite(str(suite_id), spec, tenant_id=tenant_id)  # type: ignore[call-arg]
+            except TypeError:
+                st.save_suite(str(suite_id), spec)
+            return {"suite_id": str(suite_id)}
+        # In-memory fallback
+        _SUITES[str(suite_id)] = spec
+        return {"suite_id": str(suite_id)}
+
+    @router.patch("/suites/{suite_id}")
+    async def patch_suite(request: Request, suite_id: str, body: Dict[str, Any]):
+        patch_spec = _normalize_spec(body)
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        if st is not None and hasattr(st, "get_suite"):
+            # Enforce tenant isolation
+            tenant_id = None
+            try:
+                res = getattr(st, "resolve_tenant", None)
+                if callable(res):
+                    tenant_id = res(request.headers.get("X-API-Key"))
+                from engine.core.config.settings import settings as _settings
+                if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+            except HTTPException:
+                raise
+            except Exception:
+                tenant_id = None
+            row = st.get_suite(str(suite_id))
+            if row is None:
+                raise HTTPException(status_code=404, detail="suite not found")
+            if tenant_id is not None and row.get("tenant_id") not in (None, tenant_id):
+                raise HTTPException(status_code=404, detail="suite not found")
+            merged = dict(row.get("spec") or {})
+            merged.update(patch_spec)
+            try:
+                st.save_suite(str(suite_id), merged, tenant_id=row.get("tenant_id") or tenant_id)  # type: ignore[call-arg]
+            except TypeError:
+                st.save_suite(str(suite_id), merged)
+            return {"suite_id": str(suite_id)}
+        # In-memory fallback
+        cur = _SUITES.get(str(suite_id))
+        if cur is None:
+            raise HTTPException(status_code=404, detail="suite not found")
+        cur = dict(cur)
+        cur.update(patch_spec)
+        _SUITES[str(suite_id)] = cur
+        return {"suite_id": str(suite_id)}
+
+    @router.delete("/suites/{suite_id}")
+    async def delete_suite(request: Request, suite_id: str):
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        if st is not None and hasattr(st, "delete_suite"):
+            # Enforce tenant isolation
+            tenant_id = None
+            try:
+                res = getattr(st, "resolve_tenant", None)
+                if callable(res):
+                    tenant_id = res(request.headers.get("X-API-Key"))
+                from engine.core.config.settings import settings as _settings
+                if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+            except HTTPException:
+                raise
+            except Exception:
+                tenant_id = None
+            row = st.get_suite(str(suite_id))
+            if row is None:
+                return {"ok": True}
+            if tenant_id is not None and row.get("tenant_id") not in (None, tenant_id):
+                raise HTTPException(status_code=404, detail="suite not found")
+            st.delete_suite(str(suite_id))
+            return {"ok": True}
+        # In-memory fallback
+        _SUITES.pop(str(suite_id), None)
+        return {"ok": True}
+
     app.include_router(router)

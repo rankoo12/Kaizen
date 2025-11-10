@@ -246,6 +246,11 @@ class PostgresStorage:
                 spec = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else {})
                 return {"suite_id": row[0], "spec": spec, "tenant_id": row[2]}
 
+    def delete_suite(self, suite_id: str) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM suites WHERE suite_id=%s", (suite_id,))
+
     # ---- Durable Queue ----
     def enqueue(self, payload: dict) -> str:
         job_id = f"job-{int(time.time()*1000)}"
