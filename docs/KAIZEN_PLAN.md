@@ -97,6 +97,11 @@ P2 — Learning & Retrieval (Toward “Super Bot”)
    - DoD: Dashboards filtered by tenant; bounded label cardinality; SLOs (run failure rate, p95 step).
    - Tests: Metric label tests; CI sanity against labeled run.
 
+Cross‑Cutting (Data/LLM Guardrails)
+- Prioritized data/LLM usage and caching (maps to P2/15–16; informs P1 scale decisions)
+  - DoD: Per‑tenant LLM metrics (calls, duration, tokens), prompt+model cache with TTL, soft daily budgets.
+  - Tests: cache key/TTL unit, metrics increments, budget soft‑limit logging.
+
 P3 — Cloud Scale & UX
 17) Kubernetes + Helm (cloud ready) — STATUS: 🟥
    - DoD: Helm chart (API, runner, portal, Postgres, MinIO, optional Redis); HPA for runners; Terraform dev env.
