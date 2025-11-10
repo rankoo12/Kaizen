@@ -40,6 +40,40 @@ def register_queue_routes(app: FastAPI) -> None:
             # Safe no-op when OTel not present
             pass
 
+    # Simple in-process rate limiter per API key/IP (windowed counter)
+    _RATE: Dict[str, List[float]] = {}
+
+    def _rate_allow(request: Request, *, increment: bool = True) -> bool:
+        try:
+            from engine.core.config.settings import settings as _settings
+
+            window = int(getattr(_settings, "QUEUE_RATE_WINDOW_SEC", 60) or 60)
+            max_req = int(getattr(_settings, "QUEUE_RATE_MAX_REQUESTS", 60) or 60)
+        except Exception:
+            window = 60
+            max_req = 60
+        now = time.time()
+        key = None
+        try:
+            key = request.headers.get("X-API-Key") if request else None
+        except Exception:
+            key = None
+        if not key:
+            # fallback to remote addr to avoid one tenant blocking others
+            try:
+                key = request.client.host if request and request.client else "anon"
+            except Exception:
+                key = "anon"
+        bucket = _RATE.setdefault(key, [])
+        # drop entries outside window
+        cutoff = now - float(window)
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        allowed = len(bucket) < int(max_req)
+        if increment and allowed:
+            bucket.append(now)
+        return allowed
+
     # Phase 2 metrics: Observable gauge for queue depth
     try:
         from opentelemetry import metrics as _metrics
@@ -85,6 +119,9 @@ def register_queue_routes(app: FastAPI) -> None:
 
     @router.post("/queue/runs")
     async def enqueue_run(body: Dict[str, Any], request: Request):
+        # Rate limit per key/IP
+        if not _rate_allow(request):
+            raise HTTPException(status_code=429, detail="rate_limited")
         # Prefer durable queue when available
         if _storage is not None and hasattr(_storage, "enqueue"):
             # Enforce API key if multitenancy is enabled
@@ -123,6 +160,16 @@ def register_queue_routes(app: FastAPI) -> None:
                 pass
             return {"job_id": job_id}
         # In-memory fallback
+        try:
+            from engine.core.config.settings import settings as _settings
+            if getattr(_settings, "MULTITENANT_ENFORCED", False):
+                api_key = request.headers.get("X-API-Key") if request else None
+                if not api_key:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         job_id = f"job-{next(_COUNTER)}"
         job = {"job_id": job_id, **(body or {})}
         _inject_traceparent(job)
@@ -248,6 +295,9 @@ def register_queue_routes(app: FastAPI) -> None:
 
     @router.get("/queue/state")
     async def get_state(request: Request):
+        # Rate limit per key/IP
+        if not _rate_allow(request):
+            raise HTTPException(status_code=429, detail="rate_limited")
         if _storage is not None and hasattr(_storage, "state"):
             try:
                 api_key = request.headers.get("X-API-Key")
@@ -264,6 +314,17 @@ def register_queue_routes(app: FastAPI) -> None:
                 return _storage.state(tenant=tenant_id)
             except Exception:
                 pass
+        # Enforce header presence in in-memory fallback path when enforced
+        try:
+            from engine.core.config.settings import settings as _settings
+            if getattr(_settings, "MULTITENANT_ENFORCED", False):
+                api_key = request.headers.get("X-API-Key") if request else None
+                if not api_key:
+                    raise HTTPException(status_code=401, detail="unauthorized")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         queued = [{"job_id": j.get("job_id")} for j in list(_QUEUE)]
         running = list(_RUNNING.values())
         completed = sorted(_COMPLETED.values(), key=lambda r: r.get("ts", 0), reverse=True)[:50]
