@@ -20,12 +20,12 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
 
     @router.get("/runs")
     async def list_runs(
+        request: Request,
         mode: str | None = Query(default=None, description="Filter by mode: live|snapshot"),
         limit: int = Query(default=50, ge=1, le=200),
         since: float | None = Query(default=None, description="Unix epoch seconds; include runs started at or after"),
         offset: int = Query(default=0, ge=0, description="Offset for simple pagination"),
         after: str | None = Query(default=None, description="Cursor: return runs after this run_id"),
-        request: Request | None = None,
     ):
         """List recent runs from reporter; best-effort DB fallback when available.
 
