@@ -40,9 +40,11 @@ class PostgresStorage:
               args_redacted JSONB,
               ok BOOL,
               reason TEXT,
-              signature JSONB
+              signature JSONB,
+              tenant_id TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_steps_run_idx ON steps(run_id, idx);
+            CREATE INDEX IF NOT EXISTS idx_steps_tenant ON steps(tenant_id);
 
             -- suites table
             CREATE TABLE IF NOT EXISTS suites (
@@ -50,8 +52,10 @@ class PostgresStorage:
               suite_id TEXT UNIQUE,
               spec JSONB,
               created_at TIMESTAMPTZ DEFAULT NOW(),
-              updated_at TIMESTAMPTZ DEFAULT NOW()
+              updated_at TIMESTAMPTZ DEFAULT NOW(),
+              tenant_id TEXT
             );
+            CREATE INDEX IF NOT EXISTS idx_suites_tenant ON suites(tenant_id);
 
             -- durable queue
             CREATE TABLE IF NOT EXISTS queue (
@@ -106,6 +110,22 @@ class PostgresStorage:
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_tenant ON runs(tenant_id)")
                 except Exception:
                     pass
+                try:
+                    cur.execute("ALTER TABLE steps ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_steps_tenant ON steps(tenant_id)")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("ALTER TABLE suites ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_suites_tenant ON suites(tenant_id)")
+                except Exception:
+                    pass
 
     # ---- Run lifecycle (compat with orchestrator) ----
     def start_run(self, test_id: str, website: str | None = None) -> str:
@@ -128,6 +148,15 @@ class PostgresStorage:
         try:
             with self._conn() as conn:
                 with conn.cursor() as cur:
+                    # Resolve tenant_id from the parent run if available
+                    tenant_id = None
+                    try:
+                        cur.execute("SELECT tenant_id FROM runs WHERE run_id=%s", (step.get("run_id"),))
+                        row = cur.fetchone()
+                        if row:
+                            tenant_id = row[0]
+                    except Exception:
+                        tenant_id = None
                     cur.execute(
                         """
                         INSERT INTO steps(run_id, idx, ts, tool, args_redacted, ok, reason, signature)
@@ -144,6 +173,19 @@ class PostgresStorage:
                             json.dumps(step.get("signature", {})),
                         ),
                     )
+                    # Backfill tenant_id if available
+                    try:
+                        if tenant_id is not None:
+                            cur.execute(
+                                "UPDATE steps SET tenant_id=%s WHERE run_id=%s AND idx=%s",
+                                (
+                                    tenant_id,
+                                    step.get("run_id"),
+                                    int(step.get("index", 0) or 0),
+                                ),
+                            )
+                    except Exception:
+                        pass
         except Exception:
             return None
 
@@ -183,26 +225,26 @@ class PostgresStorage:
                 }
 
     # ---- Suites ----
-    def save_suite(self, suite_id: str, spec: dict) -> None:
+    def save_suite(self, suite_id: str, spec: dict, *, tenant_id: str | None = None) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO suites(suite_id, spec) VALUES (%s, %s::jsonb)
-                    ON CONFLICT (suite_id) DO UPDATE SET spec=EXCLUDED.spec, updated_at=NOW()
+                    INSERT INTO suites(suite_id, spec, tenant_id) VALUES (%s, %s::jsonb, %s)
+                    ON CONFLICT (suite_id) DO UPDATE SET spec=EXCLUDED.spec, tenant_id=COALESCE(EXCLUDED.tenant_id, suites.tenant_id), updated_at=NOW()
                     """,
-                    (suite_id, json.dumps(spec)),
+                    (suite_id, json.dumps(spec), tenant_id),
                 )
 
     def get_suite(self, suite_id: str) -> Optional[dict]:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT suite_id, spec FROM suites WHERE suite_id=%s", (suite_id,))
+                cur.execute("SELECT suite_id, spec, tenant_id FROM suites WHERE suite_id=%s", (suite_id,))
                 row = cur.fetchone()
                 if not row:
                     return None
                 spec = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else {})
-                return {"suite_id": row[0], "spec": spec}
+                return {"suite_id": row[0], "spec": spec, "tenant_id": row[2]}
 
     # ---- Durable Queue ----
     def enqueue(self, payload: dict) -> str:
