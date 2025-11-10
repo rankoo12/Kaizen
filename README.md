@@ -183,5 +183,14 @@ Documentation
 - Architecture Decisions: `docs/ADRs/`
 - Project Plan (live): `docs/KAIZEN_PLAN.md`
 
+Artifacts Storage & Retention
+- Default backend is filesystem (logs/ and snapshots/).
+- Optional MinIO (S3-compatible) backend:
+  - `KAIZEN_ARTIFACTS_BACKEND=minio`
+  - `KAIZEN_MINIO_ENDPOINT`, `KAIZEN_MINIO_BUCKET`, `KAIZEN_MINIO_ACCESS_KEY`, `KAIZEN_MINIO_SECRET_KEY`, `KAIZEN_MINIO_SECURE=true|false`
+- Retention (FS only):
+  - `KAIZEN_ARTIFACTS_RETENTION_DAYS` and/or `KAIZEN_ARTIFACTS_RETENTION_MAX_BYTES`
+  - Run `make artifacts-retain` (or `python scripts/artifacts_retention.py`)
+
 License
 - See LICENSE.

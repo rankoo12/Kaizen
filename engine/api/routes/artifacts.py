@@ -3,11 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response
 from pathlib import Path
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 import json
 import re
 
 from engine.core.config.settings import settings
+from engine.core.artifacts.store import get_store_from_settings
 
 
 router = APIRouter(prefix="/api", tags=["artifacts"])
@@ -65,17 +66,14 @@ def _artifact_map(run_id: str) -> Dict[str, Path]:
 
 @router.get("/runs/{run_id}/artifacts")
 def list_artifacts(run_id: str) -> Dict[str, Any]:
-    amap = _artifact_map(run_id)
+    store = get_store_from_settings(settings)
     items = []
-    for name, p in amap.items():
-        items.append(
-            {
-                "name": name,
-                "path": str(p),
-                "size": p.stat().st_size if p.exists() else 0,
-                "url": f"/api/runs/{run_id}/artifacts/{name}",
-            }
-        )
+    for it in store.list(run_id):
+        items.append({
+            "name": it.get("name"),
+            "size": it.get("size", 0),
+            "url": f"/api/runs/{run_id}/artifacts/{it.get('name')}",
+        })
     return {"run_id": run_id, "items": items}
 
 
@@ -93,18 +91,11 @@ def _detect_media_type(path: Path) -> Tuple[str, bool]:
 
 @router.get("/runs/{run_id}/artifacts/{name}")
 def get_artifact(run_id: str, name: str):
-    amap = _artifact_map(run_id)
-    path = amap.get(name)
-    if path is None:
-        raise HTTPException(status_code=404, detail="artifact not found")
-    # Enforce allow-list by only serving files we resolved in _artifact_map
-    media_type, do_scrub = _detect_media_type(path)
+    store = get_store_from_settings(settings)
     try:
-        data = path.read_text(encoding="utf-8")
-    except Exception:
-        # Fallback to raw bytes if not text
-        b = path.read_bytes()
-        return Response(content=b, media_type="application/octet-stream")
-    if do_scrub:
-        data = _scrub_text(data)
-    return PlainTextResponse(content=data, media_type=media_type)
+        data, media_type = store.get_bytes(run_id, name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if media_type.startswith("text/"):
+        return PlainTextResponse(content=data.decode("utf-8", errors="replace"), media_type=media_type)
+    return Response(content=data, media_type=media_type)
