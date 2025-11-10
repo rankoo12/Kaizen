@@ -320,6 +320,31 @@ class ElementResolver:
                 kw = max(tokens, key=len) if tokens else norm
             except Exception:
                 kw = norm
+            # Attempt clickable matches first (buttons/links) using text, then fallback to inputs
+            try:
+                runner = getattr(self._browser, "run_coro", None) if self._browser else None
+                eval_fn = getattr(self._browser, "evaluate", None) if self._browser else None
+                btn_css = f'button:has-text("{norm}")'
+                a_css = f'a:has-text("{norm}")'
+                if callable(runner) and callable(eval_fn):
+                    import json as _json
+
+                    for cand_css in (btn_css, a_css):
+                        script = f"Boolean(document.querySelector({_json.dumps(cand_css)}))"
+                        if bool(runner(eval_fn(script))):
+                            return [
+                                {
+                                    "type": "css",
+                                    "value": cand_css,
+                                    "visible": True,
+                                    "enabled": True,
+                                    "tag": "button" if cand_css.startswith("button") else "a",
+                                    "classes": [],
+                                }
+                            ]
+            except Exception:
+                pass
+
             # Prefer label association first (robust)
             label_css = f'label:has-text("{norm}") input'
             attr_css = f'input[name*="{kw}" i], input[aria-label*="{kw}" i], input[placeholder*="{kw}" i], input[value*="{kw}" i]'
