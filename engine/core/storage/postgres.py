@@ -126,6 +126,26 @@ class PostgresStorage:
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_suites_tenant ON suites(tenant_id)")
                 except Exception:
                     pass
+                # Retrieval embeddings (JSONB vector fallback; pgvector optional later)
+                try:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS retrieval_embeddings (
+                          id SERIAL PRIMARY KEY,
+                          tenant_id TEXT,
+                          domain TEXT,
+                          tool TEXT,
+                          target_signature JSONB,
+                          selector JSONB,
+                          vector JSONB,
+                          created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        """
+                    )
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_retrieval_tenant ON retrieval_embeddings(tenant_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_retrieval_domain_tool ON retrieval_embeddings(domain, tool)")
+                except Exception:
+                    pass
 
     # ---- Run lifecycle (compat with orchestrator) ----
     def start_run(self, test_id: str, website: str | None = None) -> str:
@@ -481,3 +501,94 @@ class PostgresStorage:
                 except Exception:
                     pass
                 return None
+
+    # ---- Retrieval Embeddings ----
+    def save_embedding_selector(
+        self,
+        *,
+        domain: str | None,
+        tool: str,
+        target_signature: dict,
+        selector: dict,
+        tenant_id: str | None = None,
+        vector: list[float] | None = None,
+    ) -> None:
+        try:
+            if vector is None:
+                from engine.core.retrieval.embed import embed_signature
+
+                vector = embed_signature(target_signature)
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO retrieval_embeddings(tenant_id, domain, tool, target_signature, selector, vector)
+                        VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)
+                        """,
+                        (
+                            tenant_id,
+                            domain,
+                            tool,
+                            json.dumps(target_signature or {}),
+                            json.dumps({"type": selector.get("type"), "value": selector.get("value")}),
+                            json.dumps(vector or []),
+                        ),
+                    )
+        except Exception:
+            return None
+
+    def retrieve_embedding_selector(
+        self,
+        *,
+        domain: str | None,
+        tool: str,
+        target_signature: dict,
+        tenant_id: str | None = None,
+        top_k: int = 5,
+    ) -> dict | None:
+        try:
+            from engine.core.retrieval.embed import embed_signature, cosine
+
+            qv = embed_signature(target_signature or {})
+            rows: list[tuple] = []
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    if tenant_id is not None:
+                        cur.execute(
+                            """
+                            SELECT selector, vector FROM retrieval_embeddings
+                            WHERE tool=%s AND (tenant_id IS NOT DISTINCT FROM %s) AND (domain IS NOT DISTINCT FROM %s)
+                            ORDER BY created_at DESC LIMIT 200
+                            """,
+                            (tool, tenant_id, domain),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT selector, vector FROM retrieval_embeddings
+                            WHERE tool=%s AND (domain IS NOT DISTINCT FROM %s)
+                            ORDER BY created_at DESC LIMIT 200
+                            """,
+                            (tool, domain),
+                        )
+                    rows = cur.fetchall() or []
+            best = None
+            best_s = -1.0
+            for sel_json, vec_json in rows:
+                try:
+                    sel = json.loads(sel_json) if isinstance(sel_json, str) else sel_json
+                except Exception:
+                    sel = None
+                try:
+                    vec = json.loads(vec_json) if isinstance(vec_json, str) else vec_json
+                except Exception:
+                    vec = None
+                if not isinstance(sel, dict) or not isinstance(vec, list):
+                    continue
+                s = cosine(qv, [float(x) for x in vec])
+                if s > best_s:
+                    best_s = s
+                    best = sel
+            return best
+        except Exception:
+            return None
