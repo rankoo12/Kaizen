@@ -81,9 +81,9 @@ P1 — SaaS Foundations
    - Tests: API tests; masked secrets in logs; scheduler integration.
 
 P2 — Learning & Retrieval (Toward “Super Bot”)
-13) Profile learning polish — STATUS: 🟨
-   - DoD: Registrable domain normalization; deterministic tie‑breakers; profile metrics (hit/miss).
-   - Tests: Domain parsing unit; orchestrator asserts stable profile preference.
+13) Profile learning & healing drift — STATUS: 🟨
+   - DoD: Registrable domain normalization; deterministic tie‑breakers; profile metrics (hit/miss); healing under UI drift.
+   - Tests: Added healing drift scenarios (live debug + CSS generalization); domain parsing unit and profile preference still pending.
 
 14) Cross-site retrieval (opt-in, privacy-safe) — STATUS: 🟥
    - DoD: Element embeddings (DOM attrs + text) stored in pgvector; retrieval mixed into resolver when local signals fail; strict tenant isolation and opt‑in global corpus.
