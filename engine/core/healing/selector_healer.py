@@ -53,6 +53,41 @@ class DeterministicHealer:
                         }
         except Exception:
             pass
+        # 0.5) Embedding-based retrieval (per-tenant/domain) when available
+        try:
+            if self._storage is not None:
+                retr = getattr(self._storage, "retrieve_embedding_selector", None)
+                if callable(retr):
+                    from engine.core.config.settings import settings as _settings
+
+                    dom = context.get("domain") if isinstance(context, dict) else None
+                    tenant_id = context.get("tenant_id") if isinstance(context, dict) else None
+                    # If multitenancy is enforced and no tenant is present, deny cross-tenant retrieval
+                    if getattr(_settings, "MULTITENANT_ENFORCED", False) and tenant_id is None:
+                        return None
+                    sel = retr(
+                        domain=dom,
+                        tool=str(context.get("tool", "")),
+                        target_signature=failure.get("target") or {},
+                        tenant_id=tenant_id,
+                    )
+                    # Optional global corpus fallback when explicitly opted in
+                    if sel is None and getattr(_settings, "RETRIEVAL_GLOBAL_OPT_IN", False):
+                        sel = retr(
+                            domain=dom,
+                            tool=str(context.get("tool", "")),
+                            target_signature=failure.get("target") or {},
+                            tenant_id=None,
+                        )
+                    if isinstance(sel, dict) and sel.get("type") and sel.get("value"):
+                        return {
+                            "primary": {"type": sel.get("type"), "value": sel.get("value"), "visible": True, "enabled": True},
+                            "fallbacks": [],
+                            "confidence": 0.65,
+                            "reason": "retrieval_hit",
+                        }
+        except Exception:
+            pass
         target = failure.get("target") or {}
         # 1) Direct CSS provided → generalize
         css = target.get("css")
