@@ -367,12 +367,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     ctx, idx, tool, res, duration=(time.time() - step_start)
                 )
                 try:
-                    if (
-                        isinstance(res, StepResult)
-                        and res.ok
-                        and actual_resolved is not None
-                    ):
-                        self._maybe_save_profile(tool, res, actual_resolved)
+                if (
+                    isinstance(res, StepResult)
+                    and res.ok
+                    and actual_resolved is not None
+                ):
+                    self._maybe_save_profile(tool, res, actual_resolved)
+                    self._maybe_save_embedding(tool, res, actual_resolved, ctx)
                         if tool == "click":
                             # remember last successful click target for subsequent type steps
                             self._last_target = actual_resolved
@@ -719,6 +720,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
             }
             try:
                 self._maybe_save_profile(tool, res, primary)
+                self._maybe_save_embedding(tool, res, primary, ctx)
             except Exception:
                 pass
             # Ensure subsequent type uses the healed click target
@@ -757,6 +759,46 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 tool=tool,
                 target_signature=target_signature,
                 selector=selector,
+            )
+
+    def _maybe_save_embedding(self, tool: str, res: StepResult, candidate: Any, ctx: ExecCtx) -> None:
+        try:
+            from engine.core.config.settings import settings as _settings
+
+            if not getattr(_settings, "RETRIEVAL_SAVE_ON_SUCCESS", True):
+                return
+        except Exception:
+            pass
+        if not getattr(self, "_storage", None):
+            return
+        if not isinstance(candidate, dict):
+            return
+        if not isinstance(res, StepResult) or not res.ok:
+            return
+        sel_type = candidate.get("type")
+        sel_value = candidate.get("value")
+        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+            return
+        selector = {"type": sel_type, "value": sel_value}
+        target_signature = res.signature or {}
+        save = getattr(self._storage, "save_embedding_selector", None)
+        if callable(save):
+            tenant_id = None
+            try:
+                # Resolve tenant from run_id when available
+                rid = getattr(ctx, "run_id", None)
+                if rid and hasattr(self._storage, "get_run"):
+                    row = self._storage.get_run(str(rid))
+                    if isinstance(row, dict):
+                        tenant_id = row.get("tenant_id")
+            except Exception:
+                tenant_id = None
+            save(
+                domain=getattr(self, "_current_domain", None),
+                tool=tool,
+                target_signature=target_signature,
+                selector=selector,
+                tenant_id=tenant_id,
             )
 
     def _llm_propose(self, target: dict, reason: str) -> dict | None:
