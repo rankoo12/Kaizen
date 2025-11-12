@@ -116,6 +116,16 @@ class Settings(BaseSettings):
         default=60, description="Max requests per window per key for /api/queue/*"
     )
 
+    # Retrieval/privacy and caching (phase 1)
+    LLM_CACHE_ENABLED: bool = Field(default=True, description="Enable LLM response cache")
+    LLM_CACHE_TTL_SEC: int = Field(default=600, description="LLM cache TTL in seconds")
+    RETRIEVAL_SAVE_ON_SUCCESS: bool = Field(
+        default=True, description="Persist embedding+selector mapping on successful actions"
+    )
+    RETRIEVAL_GLOBAL_OPT_IN: bool = Field(
+        default=False, description="Allow cross-tenant retrieval when multitenancy is not enforced"
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_allowed_schemes(cls, data):
