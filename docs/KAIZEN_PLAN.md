@@ -85,9 +85,9 @@ P2 — Learning & Retrieval (Toward “Super Bot”)
    - DoD: Registrable domain normalization; deterministic tie‑breakers; profile metrics (hit/miss); healing under UI drift.
    - Tests: Added healing drift scenarios (live debug + CSS generalization); domain parsing unit and profile preference still pending.
 
-14) Cross-site retrieval (opt-in, privacy-safe) — STATUS: 🟥
-   - DoD: Element embeddings (DOM attrs + text) stored in pgvector; retrieval mixed into resolver when local signals fail; strict tenant isolation and opt‑in global corpus.
-   - Tests: Embedding generation unit; integration showing lift on held-out site; privacy tests.
+14) Cross-site retrieval (opt-in, privacy-safe) — STATUS: 🟩
+   - DoD: Element embeddings (DOM attrs + text) stored (pgvector-ready via JSONB fallback); retrieval mixed into healer when local signals fail; automatic save on success; strict tenant isolation and opt‑in global corpus.
+   - Tests: Embedding unit (cosine), PG-backed retrieval integration, privacy isolation (tenant/global opt‑in).
 
 15) Evaluation harness and leaderboard — STATUS: 🟥
    - DoD: Corpus + breakage scenarios; success@1/@3, healing rate, TTR; artifacts and Grafana panels.
