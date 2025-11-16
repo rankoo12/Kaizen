@@ -1,0 +1,70 @@
+namespace: kaizen
+
+engineApi:
+  image: kaizen-engine:dev
+  pullPolicy: IfNotPresent
+  replicas: 1
+  port: 8080
+  env:
+    HEALER_ENABLED: "true"
+    HEALER_PATH: "deterministic"
+    STORAGE_BACKEND: "postgres"
+    PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
+    LLM_ENABLED: "true"
+    PLANNER_PATH: "llm"
+    ALLOWED_URL_SCHEMES: "https://,http://,about:blank,data:"
+    OLLAMA_BASE_URL: "http://ollama:11434"
+    OLLAMA_MODEL: "qwen3:8b"
+    LLM_TIMEOUT_SECONDS: "60"
+    MULTITENANT_ENFORCED: "false"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+
+engineRunner:
+  image: kaizen-engine:dev
+  pullPolicy: IfNotPresent
+  replicas: 1
+  env:
+    KAIZEN_API_BASE: "http://engine-api:8080/api"
+    HEALER_ENABLED: "true"
+    HEALER_PATH: "deterministic"
+    STORAGE_BACKEND: "postgres"
+    PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
+    LLM_ENABLED: "true"
+    PLANNER_PATH: "llm"
+    ALLOWED_URL_SCHEMES: "https://,http://,about:blank,data:"
+    OLLAMA_BASE_URL: "http://ollama:11434"
+    OLLAMA_MODEL: "qwen3:8b"
+    LLM_TIMEOUT_SECONDS: "60"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+
+portal:
+  image: python:3.11-slim
+  pullPolicy: IfNotPresent
+  port: 8080
+  env:
+    ENGINE_API_BASE: "http://engine-api:8080/api"
+
+postgres:
+  enabled: true
+  storage:
+    size: 1Gi
+  image: postgres:16
+  port: 5432
+  user: kaizen
+  password: kaizen
+  database: kaizen
+
+otelCollector:
+  enabled: true
+  image: otel/opentelemetry-collector-contrib:0.104.0
+  port: 4318
+
+hpa:
+  runner:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+
+service:
+  type: ClusterIP

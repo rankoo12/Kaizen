@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kaizen.fullname" . }}-engine-runner
+  labels:
+    app.kubernetes.io/name: engine-runner
+    app.kubernetes.io/part-of: kaizen
+spec:
+  replicas: {{ .Values.engineRunner.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: engine-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: engine-runner
+        app.kubernetes.io/part-of: kaizen
+    spec:
+      containers:
+        - name: engine-runner
+          image: {{ .Values.engineRunner.image }}
+          imagePullPolicy: {{ .Values.engineRunner.pullPolicy }}
+          env:
+            {{- range $k, $v := .Values.engineRunner.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          command: ["python", "-m", "engine.runner"]

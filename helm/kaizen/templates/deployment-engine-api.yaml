@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kaizen.fullname" . }}-engine-api
+  labels:
+    app.kubernetes.io/name: engine-api
+    app.kubernetes.io/part-of: kaizen
+spec:
+  replicas: {{ .Values.engineApi.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: engine-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: engine-api
+        app.kubernetes.io/part-of: kaizen
+    spec:
+      containers:
+        - name: engine-api
+          image: {{ .Values.engineApi.image }}
+          imagePullPolicy: {{ .Values.engineApi.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.engineApi.port }}
+          env:
+            {{- range $k, $v := .Values.engineApi.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          command: ["uvicorn", "engine.api.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "{{ .Values.engineApi.port }}", "--log-level", "warning", "--no-access-log"]

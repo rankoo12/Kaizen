@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kaizen
+description: Kaizen Engine (API, Runner, Portal) with optional Postgres and OTEL
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
