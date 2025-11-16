@@ -157,11 +157,16 @@ class StatsCaptureReporter(IReporter):
             try:
                 dur = step_run.get("duration")
                 if _OTEL_STEP_HIST is not None and isinstance(dur, (int, float)):
-                    _OTEL_STEP_HIST.record(float(dur), attributes={
+                    attrs = {
                         "tool": tool,
                         "ok": bool(step_run.get("ok", False)),
                         "reason": str(step_run.get("reason") or "none"),
-                    })
+                    }
+                    # Tag with tenant when provided by engine payload
+                    tid = step_run.get("tenant_id")
+                    if tid:
+                        attrs["tenant"] = str(tid)
+                    _OTEL_STEP_HIST.record(float(dur), attributes=attrs)
             except Exception:
                 pass
         except Exception:
