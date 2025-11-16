@@ -54,6 +54,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._current_domain: str | None = None
         self._profile_hits = 0
         self._profile_misses = 0
+        self._run_tenant_id: str | None = None
 
     def execute(self, plan: Plan, *, ctx: ExecCtx) -> List[StepResult]:
         # reset heal stats per execution
@@ -523,6 +524,18 @@ class DeterministicPlanExecutor(IPlanExecutor):
             "ok": res.ok,
             "reason": res.reason,
         }
+        # attach tenant when resolvable (for per-tenant metrics labeling downstream)
+        try:
+            if self._run_tenant_id is None and getattr(self, "_storage", None) is not None:
+                get_run = getattr(self._storage, "get_run", None)
+                if callable(get_run):
+                    row = get_run(str(ctx.run_id))
+                    if isinstance(row, dict):
+                        self._run_tenant_id = row.get("tenant_id")
+            if self._run_tenant_id is not None:
+                payload["tenant_id"] = self._run_tenant_id
+        except Exception:
+            pass
         if duration is not None:
             try:
                 payload["duration"] = float(duration)
