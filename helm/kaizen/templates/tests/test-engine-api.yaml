@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "kaizen.fullname" . }}-engine-api-test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.10.1
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - >-
+          set -euo pipefail;
+          API=http://{{ include "kaizen.fullname" . }}-engine-api:8080;
+          echo "Hitting $API/api/docs ...";
+          curl -sf "$API/api/docs" >/dev/null;
+          echo "Engine API docs OK";

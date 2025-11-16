@@ -103,9 +103,9 @@ Cross‑Cutting (Data/LLM Guardrails)
   - Tests: cache key/TTL unit, metrics increments, budget soft‑limit logging.
 
 P3 — Cloud Scale & UX
-17) Kubernetes + Helm (cloud ready) — STATUS: 🟥
-   - DoD: Helm chart (API, runner, portal, Postgres, MinIO, optional Redis); HPA for runners; Terraform dev env.
-   - Tests: Helm template lint; smoke deploy in kind/Minikube; sanity run passes.
+17) Kubernetes + Helm (cloud ready) — STATUS: 🟨
+   - DoD (phase 1): Helm chart (API, runner, portal, Postgres, OTEL) + runner HPA; dev README; kind/Minikube smoke capable.
+   - Tests: Helm template renders; manual smoke deploy via README.
 
 18) Portal v2 (Next.js/React UI) — STATUS: 🟥
    - DoD: Auth, test editor, run viewer, artifact gallery, model selection, settings; backend stays FastAPI.
