@@ -18,6 +18,15 @@ from .handlers.upload import UploadHandler
 from .handlers.drag import DragHandler
 from .handlers.drag_and_drop import DragAndDropHandler
 from .handlers.scroll import ScrollHandler
+from .handlers.reload import ReloadHandler
+from .handlers.back import BackHandler
+from .handlers.forward import ForwardHandler
+from .handlers.new_tab import NewTabHandler
+from .handlers.new_window import NewWindowHandler
+from .handlers.switch_tab import SwitchTabHandler
+from .handlers.switch_window import SwitchWindowHandler
+from .handlers.close_tab import CloseTabHandler
+from .handlers.close_window import CloseWindowHandler
 
 __all__ = [
     "OpenHandler",
@@ -40,4 +49,13 @@ __all__ = [
     "DragHandler",
     "DragAndDropHandler",
     "ScrollHandler",
+    "ReloadHandler",
+    "BackHandler",
+    "ForwardHandler",
+    "NewTabHandler",
+    "NewWindowHandler",
+    "SwitchTabHandler",
+    "SwitchWindowHandler",
+    "CloseTabHandler",
+    "CloseWindowHandler",
 ]
