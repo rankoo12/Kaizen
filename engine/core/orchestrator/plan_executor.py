@@ -155,10 +155,10 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Resolve target deterministically for interactive actions
-            if tool in {"click", "type", "press"}:
+            if tool in {"click", "type", "press", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}:
                 target = args.get("target")
                 # press/assertUrl/custom may not require a target
-                requires_target = tool in {"click", "type", "waitFor", "assertVisible", "assertText"}
+                requires_target = tool in {"click", "type", "waitFor", "assertVisible", "assertText", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}
                 if requires_target and not isinstance(target, dict):
                     res = StepResult(ok=False, reason=R.MISSING_TARGET)
                     results.append(res)
@@ -290,14 +290,65 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     except Exception:
                         pass
 
+                # Special case: dragAndDrop needs to resolve destination 'to' as well
+                if tool == "dragAndDrop":
+                    try:
+                        to_target = args.get("to")
+                        if not isinstance(to_target, dict):
+                            res = StepResult(ok=False, reason=R.MISSING_TARGET)
+                            results.append(res)
+                            self._emit_report(ctx, idx, tool, res)
+                            self._emit_metric(tool, res)
+                            continue
+                        # Resolve destination using same policy
+                        finder: Callable[[dict], Any] | None = getattr(self._resolver, "find", None)
+                        if callable(finder):
+                            timeout_ms = ctx.timeout_ms or getattr(self._settings, "EXEC_TIMEOUT_MS", None)
+                            if timeout_ms is None:
+                                try:
+                                    dests = finder(to_target) or []
+                                except Exception:
+                                    dests = []
+                                if len(dests) != 1:
+                                    res = StepResult(ok=False, reason=(R.RESOLVE_ZERO if len(dests) == 0 else R.RESOLVE_MULTI))
+                                    results.append(res)
+                                    self._emit_report(ctx, idx, tool, res)
+                                    self._emit_metric(tool, res)
+                                    continue
+                                dest_resolved = dests[0]
+                            else:
+                                dest_resolved, _ = self._poll_resolve(finder, to_target, timeout_ms)
+                                if dest_resolved is None:
+                                    res = StepResult(ok=False, reason=R.TIMEOUT_RESOLVE)
+                                    results.append(res)
+                                    self._emit_report(ctx, idx, tool, res)
+                                    self._emit_metric(tool, res)
+                                    continue
+                        else:
+                            res = StepResult(ok=False, reason=R.RESOLVER_NO_FIND)
+                            results.append(res)
+                            self._emit_report(ctx, idx, tool, res)
+                            self._emit_metric(tool, res)
+                            continue
+                    except Exception:
+                        res = StepResult(ok=False, reason=R.TIMEOUT_RESOLVE)
+                        results.append(res)
+                        self._emit_report(ctx, idx, tool, res)
+                        self._emit_metric(tool, res)
+                        continue
+                else:
+                    dest_resolved = None
+
                 # Attach resolved info for handlers via meta (non-schema execution detail)
                 if resolved is not None:
                     meta = dict(call.get("meta") or {})
                     meta["resolved"] = resolved
+                    if tool == "dragAndDrop" and dest_resolved is not None:
+                        meta["resolved_to"] = dest_resolved
                     call["meta"] = meta
 
                 # Click safety policy
-                if tool == "click":
+                if tool in {"click", "doubleClick", "rightClick"}:
                     safety_reason = self._check_click_safety(resolved)
                     if safety_reason is not None:
                         healed = self._try_heal(
@@ -343,7 +394,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 ):
                     res.signature = self._build_signature(actual_resolved)
                 # If a click failed, attempt healer recovery as a secondary path
-                if tool == "click" and isinstance(res, StepResult) and not res.ok:
+                if tool in {"click", "doubleClick", "rightClick"} and isinstance(res, StepResult) and not res.ok:
                     try:
                         failure_reason = getattr(res, "reason", None) or R.CLICK_TIMEOUT
                     except Exception:
@@ -368,14 +419,14 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     ctx, idx, tool, res, duration=(time.time() - step_start)
                 )
                 try:
-                if (
-                    isinstance(res, StepResult)
-                    and res.ok
-                    and actual_resolved is not None
-                ):
-                    self._maybe_save_profile(tool, res, actual_resolved)
-                    self._maybe_save_embedding(tool, res, actual_resolved, ctx)
-                        if tool == "click":
+                    if (
+                        isinstance(res, StepResult)
+                        and res.ok
+                        and actual_resolved is not None
+                    ):
+                        self._maybe_save_profile(tool, res, actual_resolved)
+                        self._maybe_save_embedding(tool, res, actual_resolved, ctx)
+                        if tool in {"click", "doubleClick", "rightClick"}:
                             # remember last successful click target for subsequent type steps
                             self._last_target = actual_resolved
                 except Exception:
