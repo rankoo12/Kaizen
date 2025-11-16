@@ -1,0 +1,83 @@
+{
+  "id": null,
+  "uid": "kaizen-tenant",
+  "title": "Kaizen Per-Tenant Observability",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["kaizen", "tenant"],
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "type": "textbox",
+        "label": "Tenant (regex)",
+        "query": ".*",
+        "current": {"text": ".*", "value": ".*"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Run Rate by Mode (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (mode) (rate(kaizen_runs_total{tenant=~\"$tenant\"}[5m]))",
+          "legendFormat": "{{mode}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Failed Runs (1h)",
+      "gridPos": {"h": 8, "w": 4, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(increase(kaizen_runs_failed_total{tenant=~\"$tenant\"}[1h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "P95 Step Duration by Tool (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(kaizen_step_duration_seconds_bucket{tenant=~\"$tenant\"}[5m])))",
+          "legendFormat": "p95 {{tool}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Healer Attempts/Successes (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum by (strategy) (rate(kaizen_healer_attempts_total{tenant=~\"$tenant\"}[5m]))",
+          "legendFormat": "attempts {{strategy}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(kaizen_healer_successes_total{tenant=~\"$tenant\"}[5m]))",
+          "legendFormat": "successes",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Profile Hits/Misses (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {"expr": "sum(rate(kaizen_profile_hits_total{tenant=~\"$tenant\"}[5m]))", "legendFormat": "hits", "refId": "A"},
+        {"expr": "sum(rate(kaizen_profile_misses_total{tenant=~\"$tenant\"}[5m]))", "legendFormat": "misses", "refId": "B"}
+      ]
+    }
+  ]
+}
