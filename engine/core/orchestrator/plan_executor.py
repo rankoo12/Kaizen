@@ -434,6 +434,16 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 self._emit_metric(tool, res)
                 continue
 
+            # Simple tools that don't require resolution (navigation, scroll)
+            if tool in {"scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow"}:
+                res = handler.execute(call, ctx)
+                results.append(res)
+                self._emit_report(
+                    ctx, idx, tool, res, duration=(time.time() - step_start)
+                )
+                self._emit_metric(tool, res)
+                continue
+
             # Unsupported tools for now
             res = StepResult(ok=False, reason=R.UNSUPPORTED_TOOL)
             results.append(res)
