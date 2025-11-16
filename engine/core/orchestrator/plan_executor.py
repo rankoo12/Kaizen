@@ -873,11 +873,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
     def _extract_domain(self, url: str) -> str | None:
         try:
             from urllib.parse import urlparse
+            from engine.core.net.domains import normalize_registrable_domain
 
             u = urlparse(url)
             host = u.hostname
             if not host:
                 return None
-            return host.lower()
+            return normalize_registrable_domain(host)
         except Exception:
             return None
