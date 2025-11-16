@@ -2,6 +2,7 @@ from typing import Any
 import os
 import asyncio
 import threading
+import time
 from playwright.async_api import async_playwright
 from engine.core.browser.browser_port import IBrowser
 from engine.core.commands.selector import to_selector_string
@@ -313,6 +314,94 @@ class PlaywrightBrowser(IBrowser):
                 await self._page.mouse.wheel(int(x) or 0, int(y) or 0)
             except Exception:
                 pass
+
+    # ----------------- Wait helpers -----------------
+    async def wait_for_visible(self, locator: Any, timeout_ms: int):
+        selector = to_selector_string(locator)
+        await self._page.locator(selector).wait_for(state="visible", timeout=timeout_ms)
+
+    async def wait_for_hidden(self, locator: Any, timeout_ms: int):
+        selector = to_selector_string(locator)
+        await self._page.locator(selector).wait_for(state="hidden", timeout=timeout_ms)
+
+    async def wait_for_clickable(self, locator: Any, timeout_ms: int):
+        selector = to_selector_string(locator)
+        deadline = time.monotonic() + (max(0, int(timeout_ms)) / 1000.0)
+        poll = 0.05
+        # Ensure element appears
+        try:
+            await self._page.locator(selector).wait_for(state="visible", timeout=timeout_ms)
+        except Exception:
+            pass
+        while time.monotonic() < deadline:
+            try:
+                ok = await self._page.evaluate(
+                    "(s)=>{const el=document.querySelector(s); if(!el) return false; const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden'||cs.pointerEvents==='none') return false; return !el.disabled;}",
+                    selector,
+                )
+                if ok:
+                    return
+            except Exception:
+                pass
+            try:
+                await self._page.wait_for_timeout(int(poll * 1000))
+            except Exception:
+                pass
+        raise TimeoutError("wait_for_clickable timeout")
+
+    async def wait_for_text(self, locator: Any, expected: str, match: str, timeout_ms: int):
+        selector = to_selector_string(locator)
+        deadline = time.monotonic() + (max(0, int(timeout_ms)) / 1000.0)
+        matcher = (match or "equals").lower()
+        while time.monotonic() < deadline:
+            try:
+                txt = await self._page.evaluate(
+                    "(s)=>{const el=document.querySelector(s); if(!el) return null; return (el.innerText||el.textContent)||''}",
+                    selector,
+                )
+                if txt is not None:
+                    t = str(txt)
+                    if matcher == "equals" and t == expected:
+                        return
+                    if matcher == "contains" and expected in t:
+                        return
+                    if matcher == "regex":
+                        import re
+
+                        try:
+                            if re.search(expected, t):
+                                return
+                        except re.error:
+                            pass
+            except Exception:
+                pass
+            await self._page.wait_for_timeout(50)
+        raise TimeoutError("wait_for_text timeout")
+
+    async def wait_for_url_contains(self, substring: str, timeout_ms: int):
+        deadline = time.monotonic() + (max(0, int(timeout_ms)) / 1000.0)
+        while time.monotonic() < deadline:
+            try:
+                href = self._page.url
+                if isinstance(href, str) and (substring in href):
+                    return
+            except Exception:
+                pass
+            await self._page.wait_for_timeout(50)
+        raise TimeoutError("wait_for_url_contains timeout")
+
+    async def wait_for_network_idle(self, timeout_ms: int):
+        await self._page.wait_for_load_state("networkidle", timeout=timeout_ms)
+
+    async def wait_for_animation_frames(self, count: int):
+        c = max(1, int(count or 1))
+        await self._page.evaluate(
+            "async (n)=>{return await new Promise(r=>{let i=0; function f(){i++; if(i>=n){r(true)} else requestAnimationFrame(f)}; requestAnimationFrame(f)});}",
+            c,
+        )
+
+    async def sleep(self, ms: int):
+        await self._page.wait_for_timeout(int(max(0, int(ms))))
 
     async def close(self):
         await self._browser.close()
