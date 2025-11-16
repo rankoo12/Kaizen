@@ -24,6 +24,15 @@ ToolEnum = {
         "drag",
         "dragAndDrop",
         "scroll",
+        "reload",
+        "back",
+        "forward",
+        "newTab",
+        "newWindow",
+        "switchTab",
+        "switchWindow",
+        "closeTab",
+        "closeWindow",
     ],
 }
 
@@ -175,6 +184,61 @@ Args = {
             {"required": ["x", "y"]},
             {"required": ["direction", "amount"]},
         ],
+    },
+    "reload": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "back": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "forward": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    },
+    "newTab": {
+        "type": "object",
+        "properties": {"url": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    "newWindow": {
+        "type": "object",
+        "properties": {"url": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    "switchTab": {
+        "type": "object",
+        "properties": {
+            "index": {"type": "integer", "minimum": 0},
+            "urlContains": {"type": "string"},
+            "titleContains": {"type": "string"},
+        },
+        "minProperties": 1,
+        "additionalProperties": False,
+    },
+    "switchWindow": {
+        "type": "object",
+        "properties": {
+            "index": {"type": "integer", "minimum": 0},
+            "urlContains": {"type": "string"},
+            "titleContains": {"type": "string"},
+        },
+        "minProperties": 1,
+        "additionalProperties": False,
+    },
+    "closeTab": {
+        "type": "object",
+        "properties": {"index": {"type": "integer", "minimum": 0}},
+        "additionalProperties": False,
+    },
+    "closeWindow": {
+        "type": "object",
+        "properties": {"index": {"type": "integer", "minimum": 0}},
+        "additionalProperties": False,
     },
     "press": {
         "type": "object",
