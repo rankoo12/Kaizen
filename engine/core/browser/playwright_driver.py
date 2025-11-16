@@ -97,19 +97,105 @@ class PlaywrightBrowser(IBrowser):
             pass
         await self._page.click(selector)
 
-    async def type(self, locator: Any, text: str):
+    async def dblclick(self, locator: Any):
         selector = to_selector_string(locator)
+        await self._page.dblclick(selector)
+
+    async def right_click(self, locator: Any):
+        selector = to_selector_string(locator)
+        await self._page.click(selector, button="right")
+
+    async def hover(self, locator: Any):
+        selector = to_selector_string(locator)
+        await self._page.hover(selector)
+
+    async def focus(self, locator: Any):
+        selector = to_selector_string(locator)
+        await self._page.focus(selector)
+
+    async def blur(self, locator: Any):
+        selector = to_selector_string(locator)
+        try:
+            await self._page.locator(selector).evaluate("e => e.blur()")
+        except Exception:
+            # best-effort: tab away
+            try:
+                await self._page.keyboard.press("Tab")
+            except Exception:
+                pass
+
+    async def clear(self, locator: Any):
+        selector = to_selector_string(locator)
+        await self._page.fill(selector, "")
+
+    async def type(self, locator: Any, text: str, clear: bool = False):
+        selector = to_selector_string(locator)
+        if clear:
+            try:
+                await self._page.fill(selector, "")
+            except Exception:
+                pass
         await self._page.fill(selector, text)
+
+    async def select_option(self, locator: Any, option: dict):
+        selector = to_selector_string(locator)
+        opt = {}
+        if isinstance(option, dict):
+            for k in ("value", "label", "index"):
+                if option.get(k) is not None:
+                    opt[k] = option.get(k)
+        await self._page.select_option(selector, **opt)
+
+    async def set_input_files(self, locator: Any, files: list[str]):
+        selector = to_selector_string(locator)
+        await self._page.set_input_files(selector, files)
+
+    async def drag(self, locator: Any, dx: int, dy: int):
+        selector = to_selector_string(locator)
+        box = await self._page.locator(selector).bounding_box()
+        if not box:
+            return
+        start_x = box["x"] + box["width"] / 2
+        start_y = box["y"] + box["height"] / 2
+        await self._page.mouse.move(start_x, start_y)
+        await self._page.mouse.down()
+        await self._page.mouse.move(start_x + int(dx), start_y + int(dy))
+        await self._page.mouse.up()
 
     async def press(self, key: str):
         # Playwright expects e.g. "Enter", "Escape", "Control+A"
         await self._page.keyboard.press(key)
+
+    async def drag_and_drop(self, source: Any, target: Any):
+        src = to_selector_string(source)
+        dst = to_selector_string(target)
+        await self._page.locator(src).drag_to(self._page.locator(dst))
 
     async def screenshot(self, path: str):
         await self._page.screenshot(path=path)
 
     async def evaluate(self, script: str):
         return await self._page.evaluate(script)
+
+    async def frames(self):
+        try:
+            return self._page.frames
+        except Exception:
+            return []
+
+    async def scroll(self, x: int, y: int):
+        try:
+            await self._page.evaluate(
+                "(x,y)=>{window.scrollBy(x,y);}",
+                x,
+                y,
+            )
+        except Exception:
+            # Fallback via mouse wheel for vertical scroll
+            try:
+                await self._page.mouse.wheel(int(x) or 0, int(y) or 0)
+            except Exception:
+                pass
 
     async def close(self):
         await self._browser.close()

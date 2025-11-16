@@ -19,6 +19,17 @@ from engine.core.commands import (
     AssertTextHandler,
     AssertUrlHandler,
     CustomHandler,
+    DoubleClickHandler,
+    RightClickHandler,
+    HoverHandler,
+    FocusHandler,
+    BlurHandler,
+    ClearHandler,
+    SelectHandler,
+    UploadHandler,
+    DragHandler,
+    DragAndDropHandler,
+    ScrollHandler,
 )
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
@@ -223,6 +234,17 @@ class Container(containers.DeclarativeContainer):
     assert_text_handler = providers.Factory(AssertTextHandler, browser=playwright_browser)
     assert_url_handler = providers.Factory(AssertUrlHandler, browser=playwright_browser)
     custom_handler = providers.Factory(CustomHandler, browser=playwright_browser)
+    dblclick_handler = providers.Factory(DoubleClickHandler, browser=playwright_browser)
+    rightclick_handler = providers.Factory(RightClickHandler, browser=playwright_browser)
+    hover_handler = providers.Factory(HoverHandler, browser=playwright_browser)
+    focus_handler = providers.Factory(FocusHandler, browser=playwright_browser)
+    blur_handler = providers.Factory(BlurHandler, browser=playwright_browser)
+    clear_handler = providers.Factory(ClearHandler, browser=playwright_browser)
+    select_handler = providers.Factory(SelectHandler, browser=playwright_browser)
+    upload_handler = providers.Factory(UploadHandler, browser=playwright_browser)
+    drag_handler = providers.Factory(DragHandler, browser=playwright_browser)
+    dnd_handler = providers.Factory(DragAndDropHandler, browser=playwright_browser)
+    scroll_handler = providers.Factory(ScrollHandler, browser=playwright_browser)
 
     action_handlers = providers.Dict(
         open=open_handler,
@@ -234,6 +256,17 @@ class Container(containers.DeclarativeContainer):
         assertText=assert_text_handler,
         assertUrl=assert_url_handler,
         custom=custom_handler,
+        doubleClick=dblclick_handler,
+        rightClick=rightclick_handler,
+        hover=hover_handler,
+        focus=focus_handler,
+        blur=blur_handler,
+        clear=clear_handler,
+        select=select_handler,
+        upload=upload_handler,
+        drag=drag_handler,
+        dragAndDrop=dnd_handler,
+        scroll=scroll_handler,
     )
 
     snapshot_runner = providers.Factory(
