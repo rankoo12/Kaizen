@@ -30,6 +30,15 @@ from engine.core.commands import (
     DragHandler,
     DragAndDropHandler,
     ScrollHandler,
+    ReloadHandler,
+    BackHandler,
+    ForwardHandler,
+    NewTabHandler,
+    NewWindowHandler,
+    SwitchTabHandler,
+    SwitchWindowHandler,
+    CloseTabHandler,
+    CloseWindowHandler,
 )
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
@@ -245,6 +254,15 @@ class Container(containers.DeclarativeContainer):
     drag_handler = providers.Factory(DragHandler, browser=playwright_browser)
     dnd_handler = providers.Factory(DragAndDropHandler, browser=playwright_browser)
     scroll_handler = providers.Factory(ScrollHandler, browser=playwright_browser)
+    reload_handler = providers.Factory(ReloadHandler, browser=playwright_browser)
+    back_handler = providers.Factory(BackHandler, browser=playwright_browser)
+    forward_handler = providers.Factory(ForwardHandler, browser=playwright_browser)
+    newtab_handler = providers.Factory(NewTabHandler, browser=playwright_browser)
+    newwin_handler = providers.Factory(NewWindowHandler, browser=playwright_browser)
+    switchtab_handler = providers.Factory(SwitchTabHandler, browser=playwright_browser)
+    switchwin_handler = providers.Factory(SwitchWindowHandler, browser=playwright_browser)
+    closetab_handler = providers.Factory(CloseTabHandler, browser=playwright_browser)
+    closewin_handler = providers.Factory(CloseWindowHandler, browser=playwright_browser)
 
     action_handlers = providers.Dict(
         open=open_handler,
@@ -267,6 +285,15 @@ class Container(containers.DeclarativeContainer):
         drag=drag_handler,
         dragAndDrop=dnd_handler,
         scroll=scroll_handler,
+        reload=reload_handler,
+        back=back_handler,
+        forward=forward_handler,
+        newTab=newtab_handler,
+        newWindow=newwin_handler,
+        switchTab=switchtab_handler,
+        switchWindow=switchwin_handler,
+        closeTab=closetab_handler,
+        closeWindow=closewin_handler,
     )
 
     snapshot_runner = providers.Factory(
