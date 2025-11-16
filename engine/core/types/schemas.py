@@ -251,8 +251,13 @@ Args = {
         "properties": {
             "target": TargetQuerySchema,
             "url": {"type": "string"},
-            "state": {"type": "string", "enum": ["visible", "hidden", "networkidle"]},
+            "urlContains": {"type": "string"},
+            "text": {"type": "string"},
+            "match": {"type": "string", "enum": ["equals", "contains", "regex"]},
+            "state": {"type": "string", "enum": ["visible", "hidden", "clickable", "networkidle", "raf"]},
             "timeout": {"type": "integer", "minimum": 0},
+            "sleepMs": {"type": "integer", "minimum": 0},
+            "frames": {"type": "integer", "minimum": 1},
         },
         "minProperties": 1,
         "additionalProperties": False,
@@ -260,7 +265,10 @@ Args = {
         "anyOf": [
             {"required": ["target"]},
             {"required": ["url"]},
+            {"required": ["urlContains"]},
             {"required": ["state"]},
+            {"required": ["sleepMs"]},
+            {"required": ["text", "target"]},
         ],
     },
     "assertVisible": {

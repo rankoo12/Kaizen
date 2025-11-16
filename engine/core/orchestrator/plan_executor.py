@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import List, Any, Callable
 import time
@@ -155,10 +155,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Resolve target deterministically for interactive actions
-            if tool in {"click", "type", "press", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}:
+            if tool in {"click", "type", "press", "waitFor", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}:
                 target = args.get("target")
                 # press/assertUrl/custom may not require a target
-                requires_target = tool in {"click", "type", "waitFor", "assertVisible", "assertText", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}
+                requires_target = (
+                    tool in {"click", "type", "assertVisible", "assertText", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}
+                    or (tool == "waitFor" and isinstance(args.get("target"), dict))
+                )
                 if requires_target and not isinstance(target, dict):
                     res = StepResult(ok=False, reason=R.MISSING_TARGET)
                     results.append(res)
@@ -435,7 +438,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Simple tools that don't require resolution (navigation, scroll)
-            if tool in {"scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow"}:
+            if tool in {"waitFor", "scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow"}:
                 res = handler.execute(call, ctx)
                 results.append(res)
                 self._emit_report(
