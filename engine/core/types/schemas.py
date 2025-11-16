@@ -33,6 +33,7 @@ ToolEnum = {
         "switchWindow",
         "closeTab",
         "closeWindow",
+        "download",
     ],
 }
 
@@ -239,6 +240,21 @@ Args = {
         "type": "object",
         "properties": {"index": {"type": "integer", "minimum": 0}},
         "additionalProperties": False,
+    },
+    "download": {
+        "type": "object",
+        "properties": {
+            "target": TargetQuerySchema,
+            "url": {"type": "string"},
+            "filename": {"type": "string"},
+            "checksum": {"type": "string"},
+            "algo": {"type": "string", "enum": ["sha256"]},
+        },
+        "additionalProperties": False,
+        "anyOf": [
+            {"required": ["url"]},
+            {"required": ["target"]},
+        ],
     },
     "press": {
         "type": "object",

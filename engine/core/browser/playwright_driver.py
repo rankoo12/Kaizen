@@ -66,15 +66,20 @@ class PlaywrightBrowser(IBrowser):
     async def open(self, url: str):
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(headless=self._headless, slow_mo=self._slowmo or 0)
-        self._page = await self._browser.new_page()
+        # Use a context that accepts downloads by default for reliability
         try:
-            # Track context/page for switching
-            ctx = self._page.context
+            ctx = await self._browser.new_context(accept_downloads=True)
             self._contexts = [ctx]
-            self._pages = [self._page]
+            self._page = await ctx.new_page()
         except Exception:
-            self._contexts = []
-            self._pages = [self._page]
+            self._page = await self._browser.new_page()
+            try:
+                # Track context/page for switching (may be default context)
+                ctx = self._page.context
+                self._contexts = [ctx]
+            except Exception:
+                self._contexts = []
+        self._pages = [self._page]
         # Set default timeouts on the page
         try:
             self._page.set_default_timeout(self._timeout_ms)
@@ -406,3 +411,65 @@ class PlaywrightBrowser(IBrowser):
     async def close(self):
         await self._browser.close()
         await self._playwright.stop()
+
+    # ----------------- Downloads -----------------
+    async def download(
+        self,
+        *,
+        locator: Any | None = None,
+        url: str | None = None,
+        filename: str | None = None,
+        out_dir: str,
+    ) -> dict:
+        import json as _json
+
+        async def _trigger():
+            if locator is not None:
+                await self.click(locator)
+                return
+            if isinstance(url, str) and url:
+                # Trigger download by fetching data and creating an object URL
+                script = (
+                    "async (u, fname)=>{"
+                    "try{const res=await fetch(u); const blob=await res.blob();"
+                    "const a=document.createElement('a'); a.href=URL.createObjectURL(blob);"
+                    "if(fname){a.setAttribute('download', fname);}"
+                    "document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},0);}catch(e){}"
+                    "}"
+                )
+                await self._page.evaluate(script, url, filename or None)
+                return
+            # Nothing to trigger; no-op
+            return
+
+        # Expect and save download
+        try:
+            async with self._page.expect_download() as dlfut:
+                await _trigger()
+            dl = await dlfut.value
+        except Exception:
+            # fallback: wait for download event without context manager
+            try:
+                await _trigger()
+                dl = await self._page.wait_for_event("download", timeout=self._timeout_ms)
+            except Exception as e:
+                raise e
+        try:
+            suggested = dl.suggested_filename
+        except Exception:
+            suggested = None
+        name = filename or suggested or "download.bin"
+        # ensure out_dir exists
+        try:
+            import os as _os
+
+            _os.makedirs(out_dir, exist_ok=True)
+        except Exception:
+            pass
+        dest = out_dir + ("/" if not out_dir.endswith(("/", "\\")) else "") + name
+        try:
+            await dl.save_as(dest)
+        except Exception:
+            # As a last resort, attempt to read bytes and write via evaluate — not ideal
+            raise
+        return {"path": dest, "filename": name}

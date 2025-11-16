@@ -44,9 +44,9 @@ P0 — Reliability First
    - DoD: unified wait helpers implemented and wired via WaitFor handler: element visible/clickable/hidden/text; URL contains; network idle; animation frame; sleep.
    - Tests: Contract for each wait; deterministic e2e using data: URLs for visible/text/urlContains/sleep/raf; network idle covered by contract.
 
-1d) Downloads & basic artifacts — STATUS: 🟨
-   - DoD: download file, verify existence/content; element screenshot on demand; hook into artifacts store.
-   - Tests: Download and checksum on a deterministic URL; artifact presence in list/get.
+1d) Downloads & basic artifacts — STATUS: 🟩
+   - DoD: download file and verify (existence + sha256) via artifacts; element screenshot already present; artifacts store lists `download/<filename>` and serves bytes.
+   - Tests: Contract for handler checksum; e2e (Playwright) triggers deterministic download via data/blob and verifies presence + checksum + artifacts list.
 
 2) Guardrails for planner + rate limit — STATUS: 🟩
    - DoD: `/api/plan/preview` enforces JSON-only with glue fallback, 429 on bursts, timeouts, few‑shots added; input caps.

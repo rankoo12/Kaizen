@@ -155,7 +155,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Resolve target deterministically for interactive actions
-            if tool in {"click", "type", "press", "waitFor", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop"}:
+            if tool in {"click", "type", "press", "waitFor", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop", "download"}:
                 target = args.get("target")
                 # press/assertUrl/custom may not require a target
                 requires_target = (
@@ -438,7 +438,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Simple tools that don't require resolution (navigation, scroll)
-            if tool in {"waitFor", "scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow"}:
+            if tool in {"waitFor", "scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow", "download"}:
                 res = handler.execute(call, ctx)
                 results.append(res)
                 self._emit_report(
