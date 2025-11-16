@@ -42,6 +42,16 @@ class FSArtifactStore(IArtifactStore):
         scr = self.logs / f"screenshot-{run_id}.png"
         if scr.exists():
             items["screenshot"] = scr
+        # Downloads saved under logs/downloads/<run_id> (flat listing)
+        dl_dir = self.logs / "downloads" / str(run_id)
+        try:
+            if dl_dir.exists():
+                for p in dl_dir.rglob("*"):
+                    if p.is_file():
+                        # Name is prefixed to avoid key collisions
+                        items[f"download/{p.name}"] = p
+        except Exception:
+            pass
         snap_dir = self._find_snapshot_dir_for_run(run_id)
         if snap_dir and snap_dir.exists():
             maybe = {

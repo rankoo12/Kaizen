@@ -39,6 +39,7 @@ from engine.core.commands import (
     SwitchWindowHandler,
     CloseTabHandler,
     CloseWindowHandler,
+    DownloadHandler,
 )
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
@@ -263,6 +264,7 @@ class Container(containers.DeclarativeContainer):
     switchwin_handler = providers.Factory(SwitchWindowHandler, browser=playwright_browser)
     closetab_handler = providers.Factory(CloseTabHandler, browser=playwright_browser)
     closewin_handler = providers.Factory(CloseWindowHandler, browser=playwright_browser)
+    download_handler = providers.Factory(DownloadHandler, browser=playwright_browser)
 
     action_handlers = providers.Dict(
         open=open_handler,
@@ -294,6 +296,7 @@ class Container(containers.DeclarativeContainer):
         switchWindow=switchwin_handler,
         closeTab=closetab_handler,
         closeWindow=closewin_handler,
+        download=download_handler,
     )
 
     snapshot_runner = providers.Factory(

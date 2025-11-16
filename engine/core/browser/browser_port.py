@@ -44,6 +44,9 @@ class IBrowser(Protocol):
     async def wait_for_animation_frames(self, count: int) -> None: ...
     async def sleep(self, ms: int) -> None: ...
 
+    # Downloads (optional)
+    async def download(self, *, locator: Any | None = None, url: str | None = None, filename: str | None = None, out_dir: str) -> dict: ...
+
 
 class ISnapshotter(Protocol):
     """Capture PageSnapshot → DOM/candidates/styles/screenshot/frames."""
