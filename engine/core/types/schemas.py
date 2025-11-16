@@ -13,6 +13,17 @@ ToolEnum = {
         "assertText",
         "assertUrl",
         "custom",
+        "doubleClick",
+        "rightClick",
+        "hover",
+        "focus",
+        "blur",
+        "clear",
+        "select",
+        "upload",
+        "drag",
+        "dragAndDrop",
+        "scroll",
     ],
 }
 
@@ -63,6 +74,107 @@ Args = {
         "properties": {"target": TargetQuerySchema},
         "required": ["target"],
         "additionalProperties": False,
+    },
+    "doubleClick": {
+        "type": "object",
+        "properties": {"target": TargetQuerySchema},
+        "required": ["target"],
+        "additionalProperties": False,
+    },
+    "rightClick": {
+        "type": "object",
+        "properties": {"target": TargetQuerySchema},
+        "required": ["target"],
+        "additionalProperties": False,
+    },
+    "hover": {
+        "type": "object",
+        "properties": {"target": TargetQuerySchema},
+        "required": ["target"],
+        "additionalProperties": False,
+    },
+    "focus": {
+        "type": "object",
+        "properties": {"target": TargetQuerySchema},
+        "required": ["target"],
+        "additionalProperties": False,
+    },
+    "blur": {
+        "type": "object",
+        "properties": {"target": TargetQuerySchema},
+        "required": ["target"],
+        "additionalProperties": False,
+    },
+    "clear": {
+        "type": "object",
+        "properties": {"target": TargetQuerySchema},
+        "required": ["target"],
+        "additionalProperties": False,
+    },
+    "select": {
+        "type": "object",
+        "properties": {
+            "target": TargetQuerySchema,
+            "option": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string"},
+                    "label": {"type": "string"},
+                    "index": {"type": "integer", "minimum": 0},
+                },
+                "minProperties": 1,
+                "additionalProperties": False,
+                "anyOf": [
+                    {"required": ["value"]},
+                    {"required": ["label"]},
+                    {"required": ["index"]},
+                ],
+            },
+        },
+        "required": ["target", "option"],
+        "additionalProperties": False,
+    },
+    "upload": {
+        "type": "object",
+        "properties": {
+            "target": TargetQuerySchema,
+            "files": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        },
+        "required": ["target", "files"],
+        "additionalProperties": False,
+    },
+    "drag": {
+        "type": "object",
+        "properties": {
+            "target": TargetQuerySchema,
+            "dx": {"type": "integer"},
+            "dy": {"type": "integer"},
+        },
+        "required": ["target", "dx", "dy"],
+        "additionalProperties": False,
+    },
+    "dragAndDrop": {
+        "type": "object",
+        "properties": {
+            "target": TargetQuerySchema,
+            "to": TargetQuerySchema,
+        },
+        "required": ["target", "to"],
+        "additionalProperties": False,
+    },
+    "scroll": {
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
+            "amount": {"type": "integer"},
+        },
+        "additionalProperties": False,
+        "oneOf": [
+            {"required": ["x", "y"]},
+            {"required": ["direction", "amount"]},
+        ],
     },
     "press": {
         "type": "object",
