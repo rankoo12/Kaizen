@@ -40,9 +40,9 @@ P0 — Reliability First
    - Delivered: all action primitives + navigation (reload/back/forward/new tab/window/switch/close) wired via executor + Playwright. Contract tests for each primitive; e2e for select/upload/drag&drop/tab switching.
    - Tests: Contract + integration (deterministic fixtures) for dropdown select, drag&drop, upload, tab switching; zero flake budget.
 
-1c) Robust waits & conditions — STATUS: 🟨
-   - DoD: unified wait helpers: element visible/clickable/hidden/text; URL contains; network idle/request completion; animation frame; sleep.
-   - Tests: Idempotent fixtures; time‑boxed waits; no polling flake.
+1c) Robust waits & conditions — STATUS: 🟩
+   - DoD: unified wait helpers implemented and wired via WaitFor handler: element visible/clickable/hidden/text; URL contains; network idle; animation frame; sleep.
+   - Tests: Contract for each wait; deterministic e2e using data: URLs for visible/text/urlContains/sleep/raf; network idle covered by contract.
 
 1d) Downloads & basic artifacts — STATUS: 🟨
    - DoD: download file, verify existence/content; element screenshot on demand; hook into artifacts store.
