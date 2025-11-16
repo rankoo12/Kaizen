@@ -93,9 +93,9 @@ P2 — Learning & Retrieval (Toward “Super Bot”)
    - DoD: Corpus + breakage scenarios; success@1/@3, healing rate, TTR; artifacts and Grafana panels.
    - Tests: Deterministic fixture tests; CI produces eval report.
 
-16) Observability per tenant — STATUS: 🟨
-   - DoD (phase 1): Add tenant labels on core metrics (per-step histogram and run counters) when tenant is known; keep label cardinality bounded. Dashboards and SLOs later.
-   - Tests: Added step payload includes tenant label; further E2E OTel tests pending.
+16) Observability per tenant — STATUS: 🟩
+   - DoD: Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
+   - Tests: Step payload includes tenant label; visual validation via Grafana dashboard.
 
 Cross‑Cutting (Data/LLM Guardrails)
 - Prioritized data/LLM usage and caching (maps to P2/15–16; informs P1 scale decisions)
