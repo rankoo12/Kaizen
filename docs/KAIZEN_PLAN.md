@@ -35,8 +35,9 @@ P0 — Reliability First
    - DoD: waitFor/assertVisible/assertText/assertUrl/custom handlers wired in DI and executor target resolution; README examples added later.
    - Tests: Unit per handler; simple integration via executor can follow.
 
-1b) Core actions completeness (desktop web only) — STATUS: 🟨
+1b) Core actions completeness (desktop web only) — STATUS: 🟨 (actions delivered; navigation pending)
    - DoD: click/double-click/context-click/hover/focus/blur/type/clear/select(dropdown)/upload file/drag & drop; scroll to/up/down/left/right; reload/back/forward; open/close/switch tab/window.
+   - Delivered in this branch: all action primitives (double/right click, hover, focus/blur, clear, select, upload, drag, drag&drop, scroll) wired via executor + Playwright, with unit contracts and e2e for select/upload/drag&drop. Navigation remains for next branch.
    - Tests: Contract + integration (deterministic fixtures) for dropdown select, drag&drop, upload, tab switching; zero flake budget.
 
 1c) Robust waits & conditions — STATUS: 🟨
