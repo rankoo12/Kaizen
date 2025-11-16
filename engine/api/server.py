@@ -162,10 +162,20 @@ def create_app(resolver=None) -> FastAPI:
                         finally:
                             dur = _time.time() - start
                             try:
+                                attrs = {"mode": mode_value}
+                                # Attempt to tag with tenant_id when resolvable
+                                try:
+                                    st = getattr(orchestrator, "_storage", None)
+                                    if st is not None and hasattr(st, "get_run") and run_id:
+                                        row = st.get_run(str(run_id))
+                                        if isinstance(row, dict) and row.get("tenant_id"):
+                                            attrs["tenant"] = str(row.get("tenant_id"))
+                                except Exception:
+                                    pass
                                 if _OTEL_RUNS_COUNTER:
-                                    _OTEL_RUNS_COUNTER.add(1, attributes={"mode": mode_value})
+                                    _OTEL_RUNS_COUNTER.add(1, attributes=attrs)
                                 if _OTEL_RUN_HIST:
-                                    _OTEL_RUN_HIST.record(dur, attributes={"mode": mode_value})
+                                    _OTEL_RUN_HIST.record(dur, attributes=attrs)
                             except Exception:
                                 pass
 
