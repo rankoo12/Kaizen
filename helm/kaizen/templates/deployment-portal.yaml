@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kaizen.fullname" . }}-portal
+  labels:
+    app.kubernetes.io/name: portal
+    app.kubernetes.io/part-of: kaizen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: portal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: portal
+        app.kubernetes.io/part-of: kaizen
+    spec:
+      containers:
+        - name: portal
+          image: {{ .Values.portal.image }}
+          imagePullPolicy: {{ .Values.portal.pullPolicy }}
+          env:
+            {{- range $k, $v := .Values.portal.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          command: ["bash", "-lc", "set -e; pip install -U pip; pip install fastapi uvicorn pydantic httpx; uvicorn api:app --host 0.0.0.0 --port {{ .Values.portal.port }} --log-level warning --no-access-log" ]

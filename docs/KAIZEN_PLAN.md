@@ -35,6 +35,18 @@ P0 — Reliability First
    - DoD: waitFor/assertVisible/assertText/assertUrl/custom handlers wired in DI and executor target resolution; README examples added later.
    - Tests: Unit per handler; simple integration via executor can follow.
 
+1b) Core actions completeness (desktop web only) — STATUS: 🟨
+   - DoD: click/double-click/context-click/hover/focus/blur/type/clear/select(dropdown)/upload file/drag & drop; scroll to/up/down/left/right; reload/back/forward; open/close/switch tab/window.
+   - Tests: Contract + integration (deterministic fixtures) for dropdown select, drag&drop, upload, tab switching; zero flake budget.
+
+1c) Robust waits & conditions — STATUS: 🟨
+   - DoD: unified wait helpers: element visible/clickable/hidden/text; URL contains; network idle/request completion; animation frame; sleep.
+   - Tests: Idempotent fixtures; time‑boxed waits; no polling flake.
+
+1d) Downloads & basic artifacts — STATUS: 🟨
+   - DoD: download file, verify existence/content; element screenshot on demand; hook into artifacts store.
+   - Tests: Download and checksum on a deterministic URL; artifact presence in list/get.
+
 2) Guardrails for planner + rate limit — STATUS: 🟩
    - DoD: `/api/plan/preview` enforces JSON-only with glue fallback, 429 on bursts, timeouts, few‑shots added; input caps.
    - Tests: API tests for 429 and glue path (`engine/tests/api/test_plan_preview_guardrails.py`).
@@ -89,9 +101,17 @@ P2 — Learning & Retrieval (Toward “Super Bot”)
    - DoD: Element embeddings (DOM attrs + text) stored (pgvector-ready via JSONB fallback); retrieval mixed into healer when local signals fail; automatic save on success; strict tenant isolation and opt‑in global corpus.
    - Tests: Embedding unit (cosine), PG-backed retrieval integration, privacy isolation (tenant/global opt‑in).
 
+14b) Retrieval v2 (pgvector + small embeddings) — STATUS: 🟥
+   - DoD: pgvector with ANN index (IVFFLAT/HNSW); sentence‑transformers (small, CPU) with batching + cache; retrieval mixed into resolver when local strategies fail; per‑tenant isolation; opt‑in global corpus; TTL/size limits.
+   - Tests: Lift on drift corpus (success@1/@3), privacy isolation, cache hit rate.
+
 15) Evaluation harness and leaderboard — STATUS: 🟥
    - DoD: Corpus + breakage scenarios; success@1/@3, healing rate, TTR; artifacts and Grafana panels.
    - Tests: Deterministic fixture tests; CI produces eval report.
+
+15b) Eval corpus expansion — STATUS: 🟥
+   - DoD: 20–30 scenarios (controls, dialogs, dynamic lists, drift variants); stratified reporting by category and fallback ladder; enforce lift thresholds.
+   - Tests: Summary aggregation unit; integration run produces stable metrics.
 
 16) Observability per tenant — STATUS: 🟩
    - DoD: Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
@@ -103,9 +123,9 @@ Cross‑Cutting (Data/LLM Guardrails)
   - Tests: cache key/TTL unit, metrics increments, budget soft‑limit logging.
 
 P3 — Cloud Scale & UX
-17) Kubernetes + Helm (cloud ready) — STATUS: 🟥
-   - DoD: Helm chart (API, runner, portal, Postgres, MinIO, optional Redis); HPA for runners; Terraform dev env.
-   - Tests: Helm template lint; smoke deploy in kind/Minikube; sanity run passes.
+17) Kubernetes + Helm (cloud ready) — STATUS: 🟨
+   - DoD (phase 1): Helm chart (API, runner, portal, Postgres, OTEL) + runner HPA; dev README; kind/Minikube smoke capable.
+   - Tests: Helm template renders; manual smoke deploy via README.
 
 18) Portal v2 (Next.js/React UI) — STATUS: 🟥
    - DoD: Auth, test editor, run viewer, artifact gallery, model selection, settings; backend stays FastAPI.
@@ -127,3 +147,5 @@ Notes on “Super Bot” Element Finding
 - Sequence: heuristics → profiles → retrieval (pgvector) → visual hints (flagged). Measure lift at each step.
 - Privacy: strict tenant isolation; separate, anonymized opt‑in corpus only when explicitly enabled.
 - Before custom training, try lightweight models (GBMs) over features; only consider fine-tuning once evaluation data justifies it.
+
+Mobile scope: explicitly deferred. Focus on desktop web primitives to 100% reliability before attempting mobile gestures.

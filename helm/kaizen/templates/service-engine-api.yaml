@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kaizen.fullname" . }}-engine-api
+  labels:
+    app.kubernetes.io/name: engine-api
+    app.kubernetes.io/part-of: kaizen
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: engine-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: {{ .Values.engineApi.port }}

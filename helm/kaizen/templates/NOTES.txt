@@ -1,0 +1,17 @@
+1. Get the application URL by running these commands:
+
+  Engine API (port-forward):
+    kubectl -n {{ .Values.namespace }} port-forward svc/{{ include "kaizen.fullname" . }}-engine-api 8080:8080
+    open http://127.0.0.1:8080/api/docs
+
+  Portal (port-forward):
+    kubectl -n {{ .Values.namespace }} port-forward svc/{{ include "kaizen.fullname" . }}-portal 8081:8080
+    open http://127.0.0.1:8081
+
+2. Helm test (basic API reachability):
+
+    helm test {{ .Release.Name }} -n {{ .Values.namespace }}
+
+3. Images
+
+    Set engineApi.image and engineRunner.image in values to an image reachable by your cluster (e.g., pushed to a registry).
