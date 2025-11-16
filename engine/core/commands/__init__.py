@@ -27,6 +27,7 @@ from .handlers.switch_tab import SwitchTabHandler
 from .handlers.switch_window import SwitchWindowHandler
 from .handlers.close_tab import CloseTabHandler
 from .handlers.close_window import CloseWindowHandler
+from .handlers.download import DownloadHandler
 
 __all__ = [
     "OpenHandler",
@@ -58,4 +59,5 @@ __all__ = [
     "SwitchWindowHandler",
     "CloseTabHandler",
     "CloseWindowHandler",
+    "DownloadHandler",
 ]
