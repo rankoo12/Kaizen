@@ -14,6 +14,8 @@ class PlaywrightBrowser(IBrowser):
         self._playwright = None
         self._browser = None
         self._page = None
+        self._pages: list[Any] = []
+        self._contexts: list[Any] = []
         # Headless toggle via env (defaults to True). Prefer KAIZEN_HEADFUL=true to force headed.
         headless = True
         try:
@@ -64,6 +66,14 @@ class PlaywrightBrowser(IBrowser):
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(headless=self._headless, slow_mo=self._slowmo or 0)
         self._page = await self._browser.new_page()
+        try:
+            # Track context/page for switching
+            ctx = self._page.context
+            self._contexts = [ctx]
+            self._pages = [self._page]
+        except Exception:
+            self._contexts = []
+            self._pages = [self._page]
         # Set default timeouts on the page
         try:
             self._page.set_default_timeout(self._timeout_ms)
@@ -85,6 +95,113 @@ class PlaywrightBrowser(IBrowser):
                 await self._page.reload(wait_until=self._nav_wait)
             except Exception:
                 pass
+
+    async def reload(self):
+        try:
+            await self._page.reload(wait_until=self._nav_wait)
+        except Exception:
+            await self._page.reload()
+
+    async def go_back(self):
+        await self._page.go_back(wait_until=self._nav_wait)
+
+    async def go_forward(self):
+        await self._page.go_forward(wait_until=self._nav_wait)
+
+    async def new_tab(self, url: str | None = None):
+        # Open a new page in the same context when possible
+        try:
+            ctx = getattr(self._page, "context", None)
+            if ctx is None:
+                p = await self._browser.new_page()
+                self._pages.append(p)
+            else:
+                p = await ctx.new_page()
+                if ctx not in self._contexts:
+                    self._contexts.append(ctx)
+                self._pages.append(p)
+            p.set_default_timeout(self._timeout_ms)
+            p.set_default_navigation_timeout(self._nav_timeout_ms)
+            if url:
+                try:
+                    await p.goto(url, wait_until=self._nav_wait)
+                except Exception:
+                    await p.goto(url)
+            self._page = p
+        except Exception:
+            # Fallback: use browser.new_page()
+            p = await self._browser.new_page()
+            if url:
+                try:
+                    await p.goto(url, wait_until=self._nav_wait)
+                except Exception:
+                    await p.goto(url)
+            self._pages.append(p)
+            self._page = p
+
+    async def new_window(self, url: str | None = None):
+        ctx = await self._browser.new_context()
+        p = await ctx.new_page()
+        p.set_default_timeout(self._timeout_ms)
+        p.set_default_navigation_timeout(self._nav_timeout_ms)
+        if url:
+            try:
+                await p.goto(url, wait_until=self._nav_wait)
+            except Exception:
+                await p.goto(url)
+        self._contexts.append(ctx)
+        self._pages.append(p)
+        self._page = p
+
+    async def switch_tab(self, index: int | None = None, url_contains: str | None = None, title_contains: str | None = None):
+        if index is not None and 0 <= int(index) < len(self._pages):
+            self._page = self._pages[int(index)]
+            return
+        # Search by url/title contains
+        for p in self._pages:
+            try:
+                if url_contains:
+                    u = p.url
+                    if isinstance(u, str) and url_contains in u:
+                        self._page = p
+                        return
+                if title_contains:
+                    t = await p.title()
+                    if title_contains in (t or ""):
+                        self._page = p
+                        return
+            except Exception:
+                continue
+
+    async def switch_window(self, index: int | None = None, url_contains: str | None = None, title_contains: str | None = None):
+        # Same implementation as tabs (pages) — windows are in separate contexts
+        await self.switch_tab(index=index, url_contains=url_contains, title_contains=title_contains)
+
+    async def close_tab(self, index: int | None = None):
+        if not self._pages:
+            return
+        if index is None:
+            p = self._page
+        else:
+            if 0 <= int(index) < len(self._pages):
+                p = self._pages[int(index)]
+            else:
+                return
+        try:
+            await p.close()
+        except Exception:
+            pass
+        try:
+            self._pages = [q for q in self._pages if q != p]
+        except Exception:
+            pass
+        # Pick a sensible current page
+        if self._pages:
+            self._page = self._pages[-1]
+
+    async def close_window(self, index: int | None = None):
+        # Close target page; its context may remain until Playwright GC
+        await self.close_tab(index)
 
     async def click(self, locator: Any):
         selector = to_selector_string(locator)
