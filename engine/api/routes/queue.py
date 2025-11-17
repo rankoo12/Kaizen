@@ -41,18 +41,29 @@ def register_queue_routes(app: FastAPI) -> None:
             pass
 
     # Simple in-process rate limiter per API key/IP (windowed counter)
-    _RATE: Dict[str, List[float]] = {}
+    # Tracks (window_start, count) per key using monotonic time to avoid
+    # flakiness from wall-clock changes.
+    _RATE: Dict[str, Dict[str, float]] = {}
 
     def _rate_allow(request: Request, *, increment: bool = True) -> bool:
         try:
+            import os
             from engine.core.config.settings import settings as _settings
 
-            window = int(getattr(_settings, "QUEUE_RATE_WINDOW_SEC", 60) or 60)
-            max_req = int(getattr(_settings, "QUEUE_RATE_MAX_REQUESTS", 60) or 60)
+            env_window = os.getenv("KAIZEN_QUEUE_RATE_WINDOW_SEC")
+            env_max = os.getenv("KAIZEN_QUEUE_MAX_REQUESTS") or os.getenv("KAIZEN_QUEUE_RATE_MAX_REQUESTS")
+            if env_window is not None:
+                window = int(env_window or 0) or int(getattr(_settings, "QUEUE_RATE_WINDOW_SEC", 60) or 60)
+            else:
+                window = int(getattr(_settings, "QUEUE_RATE_WINDOW_SEC", 60) or 60)
+            if env_max is not None:
+                max_req = int(env_max or 0) or int(getattr(_settings, "QUEUE_RATE_MAX_REQUESTS", 60) or 60)
+            else:
+                max_req = int(getattr(_settings, "QUEUE_RATE_MAX_REQUESTS", 60) or 60)
         except Exception:
             window = 60
             max_req = 60
-        now = time.time()
+        now = time.monotonic()
         key = None
         try:
             key = request.headers.get("X-API-Key") if request else None
@@ -64,14 +75,18 @@ def register_queue_routes(app: FastAPI) -> None:
                 key = request.client.host if request and request.client else "anon"
             except Exception:
                 key = "anon"
-        bucket = _RATE.setdefault(key, [])
-        # drop entries outside window
-        cutoff = now - float(window)
-        while bucket and bucket[0] < cutoff:
-            bucket.pop(0)
-        allowed = len(bucket) < int(max_req)
+        state = _RATE.setdefault(key, {"start": now, "count": 0.0})
+        start = float(state.get("start", now))
+        count = float(state.get("count", 0.0))
+        # Reset window if expired
+        if now - start > float(window):
+            start = now
+            count = 0.0
+        allowed = count < float(max_req)
         if increment and allowed:
-            bucket.append(now)
+            count += 1.0
+        state["start"] = start
+        state["count"] = count
         return allowed
 
     # Phase 2 metrics: Observable gauge for queue depth
