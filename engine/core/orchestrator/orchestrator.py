@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+import re
 
 from engine.core.orchestrator.types import IOrchestrator, IPlanner, IPlanExecutor
 from engine.core.orchestrator.snapshot_runner import SnapshotRunner
@@ -262,7 +263,57 @@ class EngineOrchestrator(IOrchestrator):
                     # fall through to glue mapping below
             # glue mapping fallback
             lower = text.strip().lower()
-            if lower.startswith("click "):
+            # Navigation, tab/window, scroll, and basic actions
+            if "go back" in lower or lower.strip() in {"back", "previous page", "previous screen"}:
+                plan.append({"tool": "back", "args": {}})
+            elif "go forward" in lower or lower.strip() in {"forward", "next page", "next screen"}:
+                plan.append({"tool": "forward", "args": {}})
+            elif "reload" in lower or "refresh" in lower:
+                plan.append({"tool": "reload", "args": {}})
+            elif "new tab" in lower:
+                plan.append({"tool": "newTab", "args": {}})
+            elif "new window" in lower:
+                plan.append({"tool": "newWindow", "args": {}})
+            elif "switch to tab" in lower or "go to tab" in lower:
+                m = re.search(r"tab\s+(\d+)", lower)
+                if m:
+                    args: dict[str, Any] = {}
+                    try:
+                        idx = max(int(m.group(1)) - 1, 0)
+                        args["index"] = idx
+                    except Exception:
+                        pass
+                    if args:
+                        plan.append({"tool": "switchTab", "args": args})
+            elif "switch to window" in lower or "go to window" in lower:
+                m2 = re.search(r"window\s+(\d+)", lower)
+                if m2:
+                    args2: dict[str, Any] = {}
+                    try:
+                        idx2 = max(int(m2.group(1)) - 1, 0)
+                        args2["index"] = idx2
+                    except Exception:
+                        pass
+                    if args2:
+                        plan.append({"tool": "switchWindow", "args": args2})
+            elif "close current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
+                plan.append({"tool": "closeTab", "args": {}})
+            elif "close current window" in lower or lower.strip() in {"close window", "close this window"}:
+                plan.append({"tool": "closeWindow", "args": {}})
+            elif lower.startswith("scroll"):
+                direction = "down"
+                if "up" in lower or "top" in lower:
+                    direction = "up"
+                elif "left" in lower:
+                    direction = "left"
+                elif "right" in lower:
+                    direction = "right"
+                amount = 400
+                plan.append({"tool": "scroll", "args": {"direction": direction, "amount": amount}})
+            elif lower.startswith("download "):
+                label = text.split(" ", 1)[1].strip()
+                plan.append({"tool": "download", "args": {"target": {"text": label}}})
+            elif lower.startswith("click "):
                 raw = text.split(" ", 1)[1].strip() or ""
                 # Prefer structured CSS target when user specifies CSS-y strings
                 css_like = False
