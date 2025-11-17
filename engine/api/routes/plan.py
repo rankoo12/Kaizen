@@ -4,6 +4,8 @@ import json
 import time
 from typing import Any, Dict
 
+import re
+
 from fastapi import APIRouter, HTTPException, Request
 
 from engine.core.config.container import Container
@@ -16,14 +18,28 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
     ctx = context or {}
     preface = (
         "You are Kaizen's planner. Convert the instruction into a minimal JSON "
-        "array of tool calls. Allowed tools and exact JSON shapes:\n"
-        "- open: {\"tool\": \"open\", \"args\": {\"url\": string}}\n"
-        "- click: {\"tool\": \"click\", \"args\": {\"target\": {\"text\": string|optional, \"css\": string|optional}}}\n"
-        "- type: {\"tool\": \"type\", \"args\": {\"target\": {...}, \"text\": string}}\n"
-        "- press: {\"tool\": \"press\", \"args\": {\"key\": string}}\n"
-        "Rules: Respond with JSON ONLY, no prose. Use safe defaults.\n"
-        "Output MUST be a JSON array (starts with '[' and ends with ']').\n"
-        "Do NOT include any other keys like model/created_at/thinking.\n"
+        "array of tool calls. Use only these tools and shapes:\n"
+        "- open: {\"tool\":\"open\",\"args\":{\"url\": string}}\n"
+        "- click: {\"tool\":\"click\",\"args\":{\"target\":{\"text\": string|optional,\"css\": string|optional}}}\n"
+        "- doubleClick/rightClick/hover/focus/blur/clear: same shape as click; only \"tool\" changes.\n"
+        "- type: {\"tool\":\"type\",\"args\":{\"target\": {...},\"text\": string,\"clear\": boolean|optional}}\n"
+        "- select: {\"tool\":\"select\",\"args\":{\"target\": {...},\"option\": {\"value\"|\"label\"|\"index\": ...}}}\n"
+        "- upload: {\"tool\":\"upload\",\"args\":{\"target\": {...},\"files\": [string,...]}}\n"
+        "- drag: {\"tool\":\"drag\",\"args\":{\"target\": {...},\"dx\": integer,\"dy\": integer}}\n"
+        "- dragAndDrop: {\"tool\":\"dragAndDrop\",\"args\":{\"target\": {...},\"to\": {...}}}\n"
+        "- press: {\"tool\":\"press\",\"args\":{\"key\": string}}\n"
+        "- waitFor: {\"tool\":\"waitFor\",\"args\":{\"target\": {...}|optional,\"url\": string|optional,\"urlContains\": string|optional,\"state\": \"visible\"|\"hidden\"|\"clickable\"|\"networkidle\"|\"raf\"|optional,\"text\": string|optional,\"match\": \"equals\"|\"contains\"|\"regex\"|optional,\"timeout\": integer|optional,\"sleepMs\": integer|optional,\"frames\": integer|optional}}\n"
+        "- scroll: {\"tool\":\"scroll\",\"args\":{\"direction\": \"up\"|\"down\"|\"left\"|\"right\",\"amount\": integer}} OR {\"x\": integer,\"y\": integer}\n"
+        "- reload/back/forward: {\"tool\":\"reload\"|\"back\"|\"forward\",\"args\":{}}\n"
+        "- newTab/newWindow: {\"tool\":\"newTab\"|\"newWindow\",\"args\":{\"url\": string|optional}}\n"
+        "- switchTab/switchWindow: {\"tool\":\"switchTab\"|\"switchWindow\",\"args\":{\"index\": integer|optional,\"urlContains\": string|optional,\"titleContains\": string|optional}}\n"
+        "- closeTab/closeWindow: {\"tool\":\"closeTab\"|\"closeWindow\",\"args\":{\"index\": integer|optional}}\n"
+        "- download: {\"tool\":\"download\",\"args\":{\"target\": {...}|optional,\"url\": string|optional,\"filename\": string|optional,\"checksum\": string|optional,\"algo\": \"sha256\"|optional}}\n"
+        "- assertVisible/assertText/assertUrl/custom: only use when explicitly asked to assert or run a custom script; args follow the tool name (for example, assertVisible.args.target, assertText.args.expected).\n"
+        "Rules: Respond with JSON ONLY, no prose. Use safe defaults. "
+        "Output MUST be a JSON array (starts with '[' and ends with ']'). "
+        "Do NOT include any other keys like model/created_at/thinking. "
+        "Do NOT invent new tool names; pick the closest tool from the list.\n"
     )
     extras = []
     if isinstance(ctx.get("url"), str):
@@ -34,7 +50,12 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
     fewshots = (
         "Example: 'press enter' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n"
         "Example: 'click Login' -> [{\"tool\":\"click\",\"args\":{\"target\":{\"text\":\"Login\"}}}]\n"
-        "Example: 'type hello' -> [{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"input\"},\"text\":\"hello\"}}]\n\n"
+        "Example: 'type hello' -> [{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"input\"},\"text\":\"hello\"}}]\n"
+        "Example: 'go back' -> [{\"tool\":\"back\",\"args\":{}}]\n"
+        "Example: 'reload the page' -> [{\"tool\":\"reload\",\"args\":{}}]\n"
+        "Example: 'scroll down a bit' -> [{\"tool\":\"scroll\",\"args\":{\"direction\":\"down\",\"amount\":400}}]\n"
+        "Example: 'open the dashboard in a new tab' -> [{\"tool\":\"newTab\",\"args\":{\"url\":\"https://app.example.com/dashboard\"}}]\n"
+        "Example: 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n\n"
     )
     return f"{header}\n{fewshots}Instruction: {text}\nJSON:"
 
@@ -47,6 +68,68 @@ def _glue_map(text: str) -> list[dict]:
     t = (text or "").strip()
     lower = t.lower()
     plan: list[dict] = []
+    # Navigation and scroll intents first
+    if "go back" in lower or lower.strip() in {"back", "previous page", "previous screen"}:
+        plan.append({"tool": "back", "args": {}})
+        return plan
+    if "go forward" in lower or lower.strip() in {"forward", "next page", "next screen"}:
+        plan.append({"tool": "forward", "args": {}})
+        return plan
+    if "reload" in lower or "refresh" in lower:
+        plan.append({"tool": "reload", "args": {}})
+        return plan
+    # Tab/window navigation
+    if "new tab" in lower:
+        plan.append({"tool": "newTab", "args": {}})
+        return plan
+    if "new window" in lower:
+        plan.append({"tool": "newWindow", "args": {}})
+        return plan
+    if "switch to tab" in lower or "go to tab" in lower:
+        m = re.search(r"tab\s+(\d+)", lower)
+        if m:
+            args: dict[str, Any] = {}
+            try:
+                idx = max(int(m.group(1)) - 1, 0)
+                args["index"] = idx
+            except Exception:
+                pass
+            if args:
+                plan.append({"tool": "switchTab", "args": args})
+                return plan
+    if "switch to window" in lower or "go to window" in lower:
+        m = re.search(r"window\s+(\d+)", lower)
+        if m:
+            args2: dict[str, Any] = {}
+            try:
+                idx2 = max(int(m.group(1)) - 1, 0)
+                args2["index"] = idx2
+            except Exception:
+                pass
+            if args2:
+                plan.append({"tool": "switchWindow", "args": args2})
+                return plan
+    if "close current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
+        plan.append({"tool": "closeTab", "args": {}})
+        return plan
+    if "close current window" in lower or lower.strip() in {"close window", "close this window"}:
+        plan.append({"tool": "closeWindow", "args": {}})
+        return plan
+    if lower.startswith("scroll"):
+        direction = "down"
+        if "up" in lower or "top" in lower:
+            direction = "up"
+        elif "left" in lower:
+            direction = "left"
+        elif "right" in lower:
+            direction = "right"
+        amount = 400
+        plan.append({"tool": "scroll", "args": {"direction": direction, "amount": amount}})
+        return plan
+    if lower.startswith("download "):
+        label = t.split(" ", 1)[1].strip()
+        plan.append({"tool": "download", "args": {"target": {"text": label}}})
+        return plan
     if lower.startswith("click "):
         raw = t.split(" ", 1)[1].strip()
         css_like = False
