@@ -93,3 +93,64 @@ def test_llm_planner_failure_fallback_to_glue():
     # glue mapping produces a click after open
     assert plan[0]["tool"] == "open"
     assert plan[1]["tool"] == "click" and plan[1]["args"]["target"]["text"] == "Login"
+
+
+class _GlueSettings:
+    EXECUTION_PATH = "orchestrator"
+    PLANNER_PATH = "glue"
+
+
+def test_glue_planner_maps_nav_and_scroll():
+    ex = _FakeExecutor()
+    orch = EngineOrchestrator(
+        planner=_FakePlanner(),
+        plan_executor=ex,
+        snapshot_runner=None,
+        storage=_FakeStorage(),
+        log=None,
+        reporter=None,
+        llm=None,
+        settings=_GlueSettings(),
+    )
+
+    class Spec:
+        id = "nav1"
+        steps = [
+            type("S", (), {"text": "go back"})(),
+            type("S", (), {"text": "scroll down a bit"})(),
+        ]
+
+    run_id = orch.run_live(Spec())
+    assert run_id == "run-nav1"
+    plan = ex.calls[0]
+    assert plan[0]["tool"] == "open"
+    assert plan[1]["tool"] == "back"
+    assert plan[2]["tool"] == "scroll"
+
+
+def test_glue_planner_maps_tab_and_download_intents():
+    ex = _FakeExecutor()
+    orch = EngineOrchestrator(
+        planner=_FakePlanner(),
+        plan_executor=ex,
+        snapshot_runner=None,
+        storage=_FakeStorage(),
+        log=None,
+        reporter=None,
+        llm=None,
+        settings=_GlueSettings(),
+    )
+
+    class Spec2:
+        id = "nav2"
+        steps = [
+            type("S", (), {"text": "open a new tab"})(),
+            type("S", (), {"text": "switch to tab 2"})(),
+            type("S", (), {"text": "close this tab"})(),
+            type("S", (), {"text": "download the report"})(),
+        ]
+
+    run_id = orch.run_live(Spec2())
+    assert run_id == "run-nav2"
+    plan = ex.calls[0]
+    assert [p["tool"] for p in plan[:5]] == ["open", "newTab", "switchTab", "closeTab", "download"]
