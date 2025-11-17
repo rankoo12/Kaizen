@@ -25,9 +25,14 @@ class DeterministicHealer:
         # Debug success trigger: [heal-success:<css>]
         try:
             t = (failure or {}).get("target") or {}
-            text = t.get("text") if isinstance(t.get("text"), str) else None
-            if isinstance(text, str) and text.startswith("[heal-success:") and text.endswith("]"):
-                css = text[len("[heal-success:") : -1]
+            marker: str | None = None
+            for key in ("text", "css"):
+                val = t.get(key)
+                if isinstance(val, str) and val.startswith("[heal-success:") and val.endswith("]"):
+                    marker = val
+                    break
+            if isinstance(marker, str):
+                css = marker[len("[heal-success:") : -1]
                 if css:
                     return {
                         "primary": {"type": "css", "value": css, "visible": True, "enabled": True},

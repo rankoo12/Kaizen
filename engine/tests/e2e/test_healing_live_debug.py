@@ -12,6 +12,12 @@ def test_live_healing_with_debug_success(container, monkeypatch):
         HEALER_ENABLED = True
         HEALER_PATH = "deterministic"
         ALLOWED_URL_SCHEMES = ["data:", "about:blank"]
+        # Reuse real paths so other tests (live runner, snapshot runner)
+        # that rely on LOGS_DIR/SNAPSHOTS_DIR continue to work.
+        from engine.core.config.settings import settings as _real_settings  # type: ignore
+
+        LOGS_DIR = _real_settings.LOGS_DIR
+        SNAPSHOTS_DIR = _real_settings.SNAPSHOTS_DIR
 
     container.settings.override(_S())
     orch = container.orchestrator()
