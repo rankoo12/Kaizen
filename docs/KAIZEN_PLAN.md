@@ -102,7 +102,7 @@ P2 — Learning & Retrieval (Toward “Super Bot”)
    - DoD: Element embeddings (DOM attrs + text) stored (pgvector-ready via JSONB fallback); retrieval mixed into healer when local signals fail; automatic save on success; strict tenant isolation and opt‑in global corpus.
    - Tests: Embedding unit (cosine), PG-backed retrieval integration, privacy isolation (tenant/global opt‑in).
 
-14b) Retrieval v2 (pgvector + small embeddings) — STATUS: 🟥
+14b) Retrieval v2 (pgvector + small embeddings) � STATUS: ??
    - DoD: pgvector with ANN index (IVFFLAT/HNSW); sentence‑transformers (small, CPU) with batching + cache; retrieval mixed into resolver when local strategies fail; per‑tenant isolation; opt‑in global corpus; TTL/size limits.
    - Tests: Lift on drift corpus (success@1/@3), privacy isolation, cache hit rate.
 
