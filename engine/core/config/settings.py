@@ -116,7 +116,7 @@ class Settings(BaseSettings):
         default=60, description="Max requests per window per key for /api/queue/*"
     )
 
-    # Retrieval/privacy and caching (phase 1)
+    # Retrieval/privacy and caching
     LLM_CACHE_ENABLED: bool = Field(default=True, description="Enable LLM response cache")
     LLM_CACHE_TTL_SEC: int = Field(default=600, description="LLM cache TTL in seconds")
     RETRIEVAL_SAVE_ON_SUCCESS: bool = Field(
@@ -124,6 +124,17 @@ class Settings(BaseSettings):
     )
     RETRIEVAL_GLOBAL_OPT_IN: bool = Field(
         default=False, description="Allow cross-tenant retrieval when multitenancy is not enforced"
+    )
+    RETRIEVAL_EMBED_MODE: Literal["hash", "sbert"] = Field(
+        default="hash", description="Embedding backend for retrieval (hash|sbert)"
+    )
+    RETRIEVAL_EMBED_DIM: int = Field(default=64, description="Embedding dimension for retrieval vectors")
+    RETRIEVAL_EMBED_CACHE_MAX: int = Field(
+        default=1024, description="Max distinct signatures cached in embedder"
+    )
+    RETRIEVAL_MAX_ROWS: int | None = Field(
+        default=None,
+        description="Optional hard cap on retrieval_embeddings rows (oldest pruned first)",
     )
 
     @model_validator(mode="before")
