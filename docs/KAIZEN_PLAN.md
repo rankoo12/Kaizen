@@ -1,152 +1,144 @@
-Kaizen — End Goal, Status, and Strict Plan
+Kaizen - End Goal, Status, and Strict Plan
 
-Legend: 🟩 Done  🟨 Planned/In Progress  🟥 Not Started  🔵 Vision/Goal
+Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
 
-End Goal (🔵)
+End Goal (*)
 - QA writes plain English tests and runs them locally and in the cloud (SaaS).
 - The Engine plans and executes via Playwright first (adapters allow Selenium/WebDriver BiDi later), resolves elements robustly, and heals selectors.
-- The Portal is a multi-tenant app for authoring tests, launching runs, reviewing artifacts/metrics, managing models, and connecting repos.
-- Kaizen “learns” over time: cross-site retrieval uses embeddings/profiles/heuristics/vision to approach near-100% element finding, with strong privacy and tenant isolation.
+- The Portal is a multi-tenant app for authoring tests, launching runs, reviewing artifacts and metrics, managing models, and connecting repos.
+- Kaizen "learns" over time: cross-site retrieval uses embeddings, profiles, heuristics, and vision to approach near-100% element finding, with strong privacy and tenant isolation.
 
 Current Status Snapshot
-- Engine (🟩): FastAPI API/CLI; orchestrator + deterministic plan executor; DOM resolver v1; handlers for open/click/type/press.
-- Engine (🟨): Added handlers for wait/assert/custom; wiring and tests included in this change.
-- Storage (🟩): In-memory + Postgres backend; settings + DI; basic profiles persisted.
-- Portal (🟨): Thin backend with minimal HTML page; NL run; runs polling; artifacts view basics.
-- Infra/CI (🟩): Docker Compose; Jenkins pipeline via scripts/ci.sh; OTel + Prometheus/Grafana/Jaeger.
-- Security (🟩): Safe URL allow-list, schema validation, local LLM via Ollama; structured logs; no secrets in repo.
+- Engine ([X]): FastAPI API/CLI; orchestrator + deterministic plan executor; DOM resolver v1; handlers for open/click/type/press.
+- Engine extensions ([X]): Added handlers for wait/assert/custom; wiring and tests included in this change.
+- Storage ([X]): In-memory + Postgres backend; settings + DI; basic profiles persisted.
+- Portal ([~]): Thin backend with minimal HTML page; NL run; runs polling; artifacts view basics.
+- Infra/CI ([X]): Docker Compose; Jenkins pipeline via scripts/ci.sh; OTel + Prometheus/Grafana/Jaeger.
+- Security ([X]): Safe URL allow-list, schema validation, local LLM via Ollama; structured logs; no secrets in repo.
 
-What’s Missing or To Add
-- Action Coverage (🟨): waitFor/assertVisible/assertText/assertUrl/custom — now implemented with unit tests; future polish as needed.
-- Migrations/Indexes (🟨): Alembic + indexes per ADR‑0006; durable queue on Postgres.
-- Portal UX (🟨): Runs list, details, artifact previews; later a proper React/Next.js UI.
-- AuthN/Z + Tenancy (🟥): API keys/JWT, tenants/users, RBAC, per-tenant isolation.
-- Artifact Storage (🟨): FS default; optional S3/MinIO; retention policy.
-- Learning/Retrieval (🟥): pgvector-based embeddings; retrieval‑augmented resolve; opt‑in global corpus.
-- Multi-browser (🟥): Selenium/WebDriver BiDi adapter via IBrowser.
-- Scheduler (🟥): Suite CRUD + periodic runs.
-- Cloud (🟥): Helm/Kubernetes, HPA for runners; Terraform for dev env.
-- Compliance (🟥): Audit logs, backups, data retention, billing/quotas.
+What Is Missing or To Add
+- Action Coverage ([~]): waitFor/assertVisible/assertText/assertUrl/custom are implemented with unit tests; future polish as needed.
+- Migrations/Indexes ([~]): Alembic plus indexes per ADR-0006; durable queue on Postgres.
+- Portal UX ([~]): Runs list, details, artifact previews; later a proper React/Next.js UI.
+- AuthN/Z and Tenancy ([ ]): API keys or JWT, tenants/users, RBAC, per-tenant isolation.
+- Artifact Storage ([~]): FS default; optional S3/MinIO; retention policy.
+- Learning and Retrieval ([~]): pgvector-based embeddings; retrieval-augmented resolve; opt-in global corpus.
+- Multi-browser ([ ]): Selenium/WebDriver BiDi adapter via IBrowser.
+- Scheduler ([ ]): Suite CRUD plus periodic runs.
+- Cloud ([ ]): Helm/Kubernetes, HPA for runners; Terraform for dev env.
+- Compliance ([ ]): Audit logs, backups, data retention, billing/quotas.
 
-Strict, Test‑First Plan
+Strict, Test-First Plan
 
-P0 — Reliability First
-1) Implement missing handlers (wait/assert/custom) — STATUS: 🟩
+P0 - Reliability First
+1) Implement missing handlers (wait/assert/custom) - STATUS: [X]
    - DoD: waitFor/assertVisible/assertText/assertUrl/custom handlers wired in DI and executor target resolution; README examples added later.
    - Tests: Unit per handler; simple integration via executor can follow.
 
-1b) Core actions completeness (desktop web only) — STATUS: 🟩
-   - DoD: click/double-click/context-click/hover/focus/blur/type/clear/select(dropdown)/upload file/drag & drop; scroll to/up/down/left/right; reload/back/forward; open/close/switch tab/window.
-   - Delivered: all action primitives + navigation (reload/back/forward/new tab/window/switch/close) wired via executor + Playwright. Contract tests for each primitive; e2e for select/upload/drag&drop/tab switching.
-   - Tests: Contract + integration (deterministic fixtures) for dropdown select, drag&drop, upload, tab switching; zero flake budget.
+1b) Core actions completeness (desktop web only) - STATUS: [X]
+   - DoD: click/double-click/context-click/hover/focus/blur/type/clear/select(dropdown)/upload file/drag and drop; scroll to/up/down/left/right; reload/back/forward; open/close/switch tab or window.
+   - Delivered: all action primitives plus navigation (reload/back/forward/new tab/window/switch/close) wired via executor and Playwright. Contract tests for each primitive; e2e for select/upload/drag and drop/tab switching.
+   - Tests: Contract plus integration (deterministic fixtures) for dropdown select, drag and drop, upload, tab switching; zero flake budget.
 
-1c) Robust waits & conditions — STATUS: 🟩
+1c) Robust waits and conditions - STATUS: [X]
    - DoD: unified wait helpers implemented and wired via WaitFor handler: element visible/clickable/hidden/text; URL contains; network idle; animation frame; sleep.
    - Tests: Contract for each wait; deterministic e2e using data: URLs for visible/text/urlContains/sleep/raf; network idle covered by contract.
 
-1d) Downloads & basic artifacts — STATUS: 🟩
-   - DoD: download file and verify (existence + sha256) via artifacts; element screenshot already present; artifacts store lists `download/<filename>` and serves bytes.
-   - Tests: Contract for handler checksum; e2e (Playwright) triggers deterministic download via data/blob and verifies presence + checksum + artifacts list.
+1d) Downloads and basic artifacts - STATUS: [X]
+   - DoD: download file and verify (existence plus sha256) via artifacts; element screenshot already present; artifacts store lists "download/<filename>" and serves bytes.
+   - Tests: Contract for handler checksum; e2e (Playwright) triggers deterministic download via data/blob and verifies presence plus checksum plus artifacts list.
 
-2) Guardrails for planner + rate limit — STATUS: 🟩
-   - DoD: `/api/plan/preview` enforces JSON-only with glue fallback, 429 on bursts, timeouts, few‑shots added; input caps.
-   - Tests: API tests for 429 and glue path (`engine/tests/api/test_plan_preview_guardrails.py`).
+2) Guardrails for planner plus rate limit - STATUS: [X]
+   - DoD: "/api/plan/preview" enforces JSON-only with glue fallback, 429 on bursts, timeouts, few-shots added, and input caps.
+   - Tests: API tests for 429 and glue path ("engine/tests/api/test_plan_preview_guardrails.py").
 
-3) Postgres migrations + durable queue (Phase A) — STATUS: 🟩
+3) Postgres migrations plus durable queue (Phase A) - STATUS: [X]
    - DoD: Schema for runs/steps/suites/queue/locator_profiles added; queue uses SKIP LOCKED; in-memory path preserved.
-   - Tests: Integration for enqueue/claim/finish; idempotence; PG toggle (see engine/tests/integration/test_postgres_storage_basic.py and test_postgres_queue_api.py).
+   - Tests: Integration for enqueue/claim/finish; idempotence; PG toggle (see "engine/tests/integration/test_postgres_storage_basic.py" and "test_postgres_queue_api.py").
 
-4) Runner agent and concurrency — STATUS: 🟨
+4) Runner agent and concurrency - STATUS: [~]
    - DoD: Multiple runners process jobs; requeue on worker death; metrics reflect queue depth.
    - Tests: Integration sim multi-claim; timeouts/abort.
 
-5) Portal basics: Runs list + artifacts preview — STATUS: 🟨
+5) Portal basics: Runs list plus artifacts preview - STATUS: [~]
    - DoD: Shows latest runs, details, artifacts (log/screenshot links); NL run remains usable.
    - Tests: Route tests for proxies; CI sanity asserts non-empty list after sample run.
 
-6) Docs cleanup and alignment — STATUS: 🟨
-   - DoD: Fix encoding, reformat `docs/PROJECT_GUIDE.md`, correct ADR‑0003 header, README links to Observability/CI/Security/ADRs.
+6) Docs cleanup and alignment - STATUS: [~]
+   - DoD: Fix encoding in key docs, reformat "docs/PROJECT_GUIDE.md", correct ADR-0003 header, README links to Observability/CI/Security/ADRs.
    - Tests: None; CI spell/format if configured.
 
-P1 — SaaS Foundations
-7) Multi-tenant base schema — STATUS: 🟥
-   - DoD: tenants/users/api_keys tables; tenant_id on runs/steps/suites/queue/artifacts; per-tenant metrics labels.
+P1 - SaaS Foundations
+7) Multi-tenant base schema - STATUS: [ ]
+   - DoD: "tenants"/"users"/"api_keys" tables; tenant_id on runs/steps/suites/queue/artifacts; per-tenant metrics labels.
    - Tests: RBAC unit tests; isolation integration tests.
 
-8) AuthN/Z MVP — STATUS: 🟥
+8) AuthN/Z MVP - STATUS: [ ]
    - DoD: API keys or JWT; protect admin/dev endpoints; rate-limit per key.
    - Tests: Auth success/deny; rate-limit.
 
-9) Artifact storage and retention — STATUS: 🟨
-   - DoD: S3/MinIO with pre-signed URLs; FS default; retention by age/size.
-   - Tests: MinIO integration (opt-in); retention policy unit tests.
+9) Artifact storage and retention - STATUS: [~]
+   - DoD: Switchable FS/S3/MinIO backend with retention policy; background pruning.
+   - Tests: FS plus MinIO adapters; retention unit and integration tests.
 
-10) Source code connectors (repo ingestion v1) — STATUS: 🟥
-   - DoD: GitHub App integration; ingest repo metadata to build a “component dictionary” for resolver hints.
-   - Tests: Connector unit tests (mock GitHub); resolver prefers known selectors.
+10) Portal UX / runs dashboard - STATUS: [~]
+   - DoD: Paginated runs list, filters, details, artifact previews; NL run remains usable.
+   - Tests: FastAPI route tests; snapshot/e2e on basic flows.
 
-11) Multi-browser support (adapter) — STATUS: 🟥
-   - DoD: IBrowser pluggable; Selenium/WebDriver BiDi adapter; smoke runs in both.
-   - Tests: Adapter API unit; e2e smoke in both drivers for a basic spec.
+P2 - Learning and Retrieval (Toward "Super Bot")
+13) Profile learning and healing drift - STATUS: [X]
+   - DoD: Registrable domain normalization; deterministic tie-breakers; profile metrics (hit/miss); healing under UI drift.
+   - Tests: Healing drift scenarios (live debug plus CSS generalization); domain normalization unit; orchestrator saves and uses registrable domain.
 
-12) Test suite CRUD and scheduling — STATUS: 🟥
-   - DoD: CRUD for suites/tests/variables; scheduled runs; secure secret handling.
-   - Tests: API tests; masked secrets in logs; scheduler integration.
+14) Cross-site retrieval (opt-in, privacy-safe) - STATUS: [X]
+   - DoD: Element embeddings (DOM attributes plus text) stored (pgvector-ready via JSONB fallback); retrieval mixed into healer when local signals fail; automatic save on success; strict tenant isolation and opt-in global corpus.
+   - Tests: Embedding unit (cosine), PG-backed retrieval integration, privacy isolation (tenant/global opt-in).
 
-P2 — Learning & Retrieval (Toward “Super Bot”)
-13) Profile learning & healing drift — STATUS: 🟩
-   - DoD: Registrable domain normalization; deterministic tie‑breakers; profile metrics (hit/miss); healing under UI drift.
-   - Tests: Healing drift scenarios (live debug + CSS generalization); domain normalization unit; orchestrator saves/uses registrable domain.
+14b) Retrieval v2 (pgvector plus small embeddings) - STATUS: [X]
+   - DoD: pgvector column plus ANN index (IVFFLAT/HNSW where available) on "retrieval_embeddings", JSONB fallback kept; configurable embedder backend (hash or SBERT) with bounded cache; retrieval path remains mixed into healer with strict tenant isolation and opt-in global corpus, ready to be exercised by the planner.
+   - Tests: Embedding unit and PG retrieval plus privacy integration tests remain green; pgvector path exercised when extension is present; evaluation harness for lift stays under 15/15b.
 
-14) Cross-site retrieval (opt-in, privacy-safe) — STATUS: 🟩
-   - DoD: Element embeddings (DOM attrs + text) stored (pgvector-ready via JSONB fallback); retrieval mixed into healer when local signals fail; automatic save on success; strict tenant isolation and opt‑in global corpus.
-   - Tests: Embedding unit (cosine), PG-backed retrieval integration, privacy isolation (tenant/global opt‑in).
+14c) Planner intents and navigation/actions - STATUS: [X]
+   - DoD: planner/LLM understands core web navigation and manual-QA-style action intents ("go back", "reload the page", "scroll down a bit", "open the dashboard in a new tab", "switch to the second tab", "close this tab", "download the report", etc.) via an explicit tool vocabulary, prompt examples, and glue fallback; portal NL flows emit the correct navigation/scroll/action tools into engine plans; high-frequency QA commands are handled even when the LLM output is noisy.
+   - Tests: "/api/plan/preview" tests for navigation, tab, scroll, and download phrases plus correct tool calls; orchestrator tests for glue behavior, including tab/download intents; portal NL run tests remain green.
 
-14b) Retrieval v2 (pgvector + small embeddings) � STATUS: ??
-   - DoD: pgvector with ANN index (IVFFLAT/HNSW); sentence‑transformers (small, CPU) with batching + cache; retrieval mixed into resolver when local strategies fail; per‑tenant isolation; opt‑in global corpus; TTL/size limits.
-   - Tests: Lift on drift corpus (success@1/@3), privacy isolation, cache hit rate.
-
-15) Evaluation harness and leaderboard — STATUS: 🟥
-   - DoD: Corpus + breakage scenarios; success@1/@3, healing rate, TTR; artifacts and Grafana panels.
+15) Evaluation harness and leaderboard - STATUS: [ ]
+   - DoD: Corpus plus breakage scenarios; success@1/@3, healing rate, time-to-repair; artifacts and Grafana panels.
    - Tests: Deterministic fixture tests; CI produces eval report.
 
-15b) Eval corpus expansion — STATUS: 🟥
-   - DoD: 20–30 scenarios (controls, dialogs, dynamic lists, drift variants); stratified reporting by category and fallback ladder; enforce lift thresholds.
+15b) Eval corpus expansion - STATUS: [ ]
+   - DoD: 20-30 scenarios (controls, dialogs, dynamic lists, drift variants); stratified reporting by category and fallback ladder; enforce lift thresholds.
    - Tests: Summary aggregation unit; integration run produces stable metrics.
 
-16) Observability per tenant — STATUS: 🟩
+16) Observability per tenant - STATUS: [X]
    - DoD: Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
    - Tests: Step payload includes tenant label; visual validation via Grafana dashboard.
 
-Cross‑Cutting (Data/LLM Guardrails)
-- Prioritized data/LLM usage and caching (maps to P2/15–16; informs P1 scale decisions)
-  - DoD: Per‑tenant LLM metrics (calls, duration, tokens), prompt+model cache with TTL, soft daily budgets.
-  - Tests: cache key/TTL unit, metrics increments, budget soft‑limit logging.
-
-P3 — Cloud Scale & UX
-17) Kubernetes + Helm (cloud ready) — STATUS: 🟨
-   - DoD (phase 1): Helm chart (API, runner, portal, Postgres, OTEL) + runner HPA; dev README; kind/Minikube smoke capable.
+P3 - Cloud Scale and UX
+17) Kubernetes plus Helm (cloud ready) - STATUS: [~]
+   - DoD (phase 1): Helm chart (API, runner, portal, Postgres, OTEL) plus runner HPA; dev README; kind/Minikube smoke capable.
    - Tests: Helm template renders; manual smoke deploy via README.
 
-18) Portal v2 (Next.js/React UI) — STATUS: 🟥
+18) Portal v2 (Next.js/React UI) - STATUS: [ ]
    - DoD: Auth, test editor, run viewer, artifact gallery, model selection, settings; backend stays FastAPI.
    - Tests: API route tests; UI Playwright tests (local).
 
-19) Security & compliance — STATUS: 🟥
-   - DoD: Audit logs; encryption at rest/in transit; backups; incident playbooks; data retention policies.
+19) Security and compliance - STATUS: [ ]
+   - DoD: Audit logs; encryption at rest and in transit; backups; incident playbooks; data retention policies.
    - Tests: Audit log unit; backup/restore (non-prod data); security scanning in CI.
 
-20) Billing & quotas (SaaS) — STATUS: 🟥
+20) Billing and quotas (SaaS) - STATUS: [ ]
    - DoD: Usage tracking per tenant; soft quotas; Stripe integration behind flag.
    - Tests: Usage counters; mock billing tests.
 
-21) Vision assist (flagged, optional) — STATUS: 🟥
+21) Vision assist (flagged, optional) - STATUS: [ ]
    - DoD: VLM-assisted region proposals as last-resort fallback; rate-limited; disabled by default.
    - Tests: Adapter and gating tests; not in default path.
 
-Notes on “Super Bot” Element Finding
-- Sequence: heuristics → profiles → retrieval (pgvector) → visual hints (flagged). Measure lift at each step.
-- Privacy: strict tenant isolation; separate, anonymized opt‑in corpus only when explicitly enabled.
+Notes on "Super Bot" Element Finding and Planning
+- Sequence: heuristics plus profiles plus retrieval (pgvector) plus visual hints (flagged). Measure lift at each step.
+- Planner/LLM is the primary interface for manual-QA-style flows: it should reliably map common QA phrases (click, type, select, upload, drag/drop, scroll, simple waits, navigation) onto the existing tool vocabulary, and degrade gracefully via glue when outputs are noisy.
+- Privacy: strict tenant isolation; separate, anonymized opt-in corpus only when explicitly enabled.
 - Before custom training, try lightweight models (GBMs) over features; only consider fine-tuning once evaluation data justifies it.
 
-Mobile scope: explicitly deferred. Focus on desktop web primitives to 100% reliability before attempting mobile gestures.
+Mobile scope: explicitly deferred. Focus on desktop web primitives to 100 percent reliability before attempting mobile gestures.
