@@ -84,7 +84,7 @@ test-e2e-local: _ensure_dirs
 
 # ---------- CI Orchestration ----------
 .PHONY: ci
-ci: setup playwright-install lint test-unit test-contract test-int e2e
+ci: setup playwright-install lint test-unit test-contract test-int e2e eval-harness
 	@echo >> CI complete. Artifacts:
 	@echo    - $(LOGS_DIR)/
 	@echo    - $(SNAP_DIR)/
@@ -94,6 +94,11 @@ ci: setup playwright-install lint test-unit test-contract test-int e2e
 ci-sanity: _ensure_dirs
 	@echo >> (sanity) Starting engine-api and exercising /api/runs
 	$(PYTHON) scripts/ci_sanity.py
+
+.PHONY: eval-harness
+eval-harness: _ensure_dirs
+	@echo >> (eval) Running offline snapshot evaluation harness
+	$(PYTHON) scripts/eval_harness.py
 
 # ---------- Security / SBOM ----------
 .PHONY: sbom

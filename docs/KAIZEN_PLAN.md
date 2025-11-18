@@ -102,13 +102,13 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - DoD: planner/LLM understands core web navigation and manual-QA-style action intents ("go back", "reload the page", "scroll down a bit", "open the dashboard in a new tab", "switch to the second tab", "close this tab", "download the report", etc.) via an explicit tool vocabulary, prompt examples, and glue fallback; portal NL flows emit the correct navigation/scroll/action tools into engine plans; high-frequency QA commands are handled even when the LLM output is noisy.
    - Tests: "/api/plan/preview" tests for navigation, tab, scroll, and download phrases plus correct tool calls; orchestrator tests for glue behavior, including tab/download intents; portal NL run tests remain green.
 
-15) Evaluation harness and leaderboard - STATUS: [ ]
-   - DoD: Corpus plus breakage scenarios; success@1/@3, healing rate, time-to-repair; artifacts and Grafana panels.
-   - Tests: Deterministic fixture tests; CI produces eval report.
+15) Evaluation harness and leaderboard - STATUS: [X]
+   - DoD: Offline, deterministic evaluation harness for snapshot element resolution is implemented (engine.eval.harness + scripts/eval_harness.py), with JSON/CSV reports under "reports/"; CI runs the harness via "make ci" so an eval report is always produced. Leaderboard/Grafana panels remain a future extension once metrics stabilize.
+   - Tests: Deterministic fixture tests for aggregation ("engine/tests/eval/test_eval_aggregate.py"); eval harness is wired into CI and remains non-flaky.
 
-15b) Eval corpus expansion - STATUS: [ ]
-   - DoD: 20-30 scenarios (controls, dialogs, dynamic lists, drift variants); stratified reporting by category and fallback ladder; enforce lift thresholds.
-   - Tests: Summary aggregation unit; integration run produces stable metrics.
+15b) Eval corpus expansion - STATUS: [~]
+   - DoD: Seed corpus of snapshot cases (controls, dialogs, lists, basic drift/form variants) defined via EvalCase in "engine.eval.harness", with per-case categories and summary by-category metrics; further expansion toward 20-30 scenarios and stricter lift thresholds is deferred.
+   - Tests: Summary aggregation unit test; future integration run will produce stable metrics once corpus is expanded further.
 
 16) Observability per tenant - STATUS: [X]
    - DoD: Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
