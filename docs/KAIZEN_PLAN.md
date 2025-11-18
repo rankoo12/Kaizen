@@ -107,8 +107,8 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - Tests: Deterministic fixture tests for aggregation ("engine/tests/eval/test_eval_aggregate.py"); eval harness is wired into CI and remains non-flaky.
 
 15b) Eval corpus expansion - STATUS: [~]
-   - DoD: Seed corpus of snapshot cases (controls, dialogs, lists, basic drift/form variants) defined via EvalCase in "engine.eval.harness", with per-case categories and summary by-category metrics; further expansion toward 20-30 scenarios and stricter lift thresholds is deferred.
-   - Tests: Summary aggregation unit test; future integration run will produce stable metrics once corpus is expanded further.
+   - DoD: Corpus expanded beyond the initial seed into a broader set of snapshot cases (controls, dialogs, lists/nav, drift variants, basic forms, shortcuts), each tagged with a category so by-category metrics are meaningful; still short of the long-term 20-30+ target and without hard "lift threshold" gating, which remains future work.
+   - Tests: Summary aggregation unit test plus corpus invariants (size, categories) under "engine/tests/eval"; future integration run will produce stable metrics once corpus and thresholds are finalized.
 
 16) Observability per tenant - STATUS: [X]
    - DoD: Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
