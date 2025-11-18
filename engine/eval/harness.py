@@ -227,4 +227,121 @@ def default_corpus() -> List[EvalCase]:
             """,
             step_text="click Log in",
         ),
+        EvalCase(
+            case_id="btn_primary_cta",
+            category="controls",
+            html="""
+            <html><body>
+              <button class="btn primary">Continue</button>
+            </body></html>
+            """,
+            step_text="click Continue",
+        ),
+        EvalCase(
+            case_id="btn_role_button_with_aria",
+            category="controls",
+            html="""
+            <html><body>
+              <div role="button" aria-label="Open menu"></div>
+            </body></html>
+            """,
+            step_text="click Open menu",
+        ),
+        # --- Drift and variants ---
+        EvalCase(
+            case_id="btn_sign_in_caps",
+            category="controls_drift",
+            html="""
+            <html><body>
+              <button class="primary">SIGN IN</button>
+            </body></html>
+            """,
+            step_text="click sign in",
+        ),
+        EvalCase(
+            case_id="btn_checkout_variant",
+            category="controls_drift",
+            html="""
+            <html><body>
+              <button class="btn-lg">Proceed to checkout</button>
+            </body></html>
+            """,
+            step_text="click checkout",
+        ),
+        # --- Lists and navigation ---
+        EvalCase(
+            case_id="nav_breadcrumbs",
+            category="lists",
+            html="""
+            <html><body>
+              <nav aria-label="Breadcrumb">
+                <a href="/">Home</a>
+                <a href="/account">Account</a>
+                <a href="/account/settings">Settings</a>
+              </nav>
+            </body></html>
+            """,
+            step_text="click Account",
+        ),
+        EvalCase(
+            case_id="nav_footer_links",
+            category="lists",
+            html="""
+            <html><body>
+              <footer>
+                <a href="/privacy">Privacy Policy</a>
+                <a href="/terms">Terms of Service</a>
+              </footer>
+            </body></html>
+            """,
+            step_text="click Terms of Service",
+        ),
+        # --- Forms and labels ---
+        EvalCase(
+            case_id="form_search_with_label",
+            category="forms",
+            html="""
+            <html><body>
+              <label for="q">Search</label>
+              <input id="q" name="q" type="text" />
+              <button>Search</button>
+            </body></html>
+            """,
+            step_text="click Search",
+        ),
+        EvalCase(
+            case_id="form_signup_placeholders",
+            category="forms",
+            html="""
+            <html><body>
+              <input name="first_name" placeholder="First name" />
+              <input name="last_name" placeholder="Last name" />
+              <button>Create account</button>
+            </body></html>
+            """,
+            step_text="click Create account",
+        ),
+        # --- Checkboxes and radios ---
+        EvalCase(
+            case_id="checkbox_terms_label",
+            category="controls",
+            html="""
+            <html><body>
+              <label for="terms">I agree to the Terms</label>
+              <input id="terms" name="terms" type="checkbox" value="yes" />
+            </body></html>
+            """,
+            step_text="click I agree to the Terms",
+        ),
+        EvalCase(
+            case_id="radio_shipping_options",
+            category="controls",
+            html="""
+            <html><body>
+              <label><input type="radio" name="shipping" value="standard" />Standard</label>
+              <label><input type="radio" name="shipping" value="express" />Express</label>
+            </body></html>
+            """,
+            step_text="click Express",
+        ),
     ]
