@@ -108,7 +108,7 @@ P2 - Learning and Retrieval (Toward "Super Bot")
 
 15b) Eval corpus expansion - STATUS: [~]
    - DoD: Corpus expanded beyond the initial seed into a broader set of snapshot cases (controls, dialogs, lists/nav, drift variants, basic forms, shortcuts), each tagged with a category so by-category metrics are meaningful; still short of the long-term 20-30+ target and without hard "lift threshold" gating, which remains future work.
-   - Tests: Summary aggregation unit test plus corpus invariants (size, categories) under "engine/tests/eval"; future integration run will produce stable metrics once corpus and thresholds are finalized.
+   - Tests: Summary aggregation unit test plus corpus invariants (size, categories) under "engine/tests/eval"; future integration run will produce stable metrics once corpus and thresholds are finalized. Additional healer-focused eval harness and tests exercise DeterministicHealer paths (generalized CSS, stable attributes, retrieval) in a deterministic way without requiring a live database.
 
 16) Observability per tenant - STATUS: [X]
    - DoD: Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
