@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from typing import Any, List
+from typing import Any
 
 from fastapi.testclient import TestClient
+
+from engine.eval.qa_corpus import QACase, qa_corpus
 
 
 class _FakeSettings:
@@ -40,61 +41,6 @@ class _LLMContainer:
         return _FakeSettings()
 
 
-@dataclass
-class QACase:
-    case_id: str
-    text: str
-    expected_tools: List[str]
-    category: str = "generic"
-
-
-def _qa_corpus() -> list[QACase]:
-    return [
-        QACase(
-            case_id="nav_back",
-            text="go back",
-            expected_tools=["back"],
-            category="nav",
-        ),
-        QACase(
-            case_id="nav_reload",
-            text="reload the page",
-            expected_tools=["reload"],
-            category="nav",
-        ),
-        QACase(
-            case_id="scroll_down",
-            text="scroll down a bit",
-            expected_tools=["scroll"],
-            category="scroll",
-        ),
-        QACase(
-            case_id="download_report",
-            text="download the report",
-            expected_tools=["download"],
-            category="download",
-        ),
-        QACase(
-            case_id="url_contains_dashboard",
-            text="check that the URL contains /dashboard",
-            expected_tools=["assertUrl"],
-            category="asserts",
-        ),
-        QACase(
-            case_id="error_invalid_password",
-            text="assert that 'Invalid password' is shown",
-            expected_tools=["assertText"],
-            category="asserts",
-        ),
-        QACase(
-            case_id="submit_form",
-            text="submit the form",
-            expected_tools=["press"],
-            category="forms",
-        ),
-    ]
-
-
 def _run_case(client: TestClient, case: QACase) -> tuple[bool, list[dict[str, Any]]]:
     r = client.post("/api/plan/preview", json={"text": case.text})
     assert r.status_code == 200
@@ -109,7 +55,7 @@ def _run_case(client: TestClient, case: QACase) -> tuple[bool, list[dict[str, An
 def test_planner_qa_glue_corpus_all_pass(monkeypatch):
     app = _build_app_with_container(monkeypatch, _LLMContainer())
     client = TestClient(app)
-    corpus = _qa_corpus()
+    corpus = qa_corpus()
 
     total = len(corpus)
     passed = 0
@@ -121,8 +67,8 @@ def test_planner_qa_glue_corpus_all_pass(monkeypatch):
             passed += 1
         by_category[case.category] = by_category.get(case.category, 0) + 1
 
-    assert total >= 5  # guardrail: do not shrink corpus silently
+    assert total >= 20  # guardrail: do not shrink corpus silently
     assert passed == total  # glue should handle all of these deterministic QA intents
     # Ensure we keep coverage for key QA categories
-    for required in {"nav", "scroll", "download", "asserts", "forms"}:
+    for required in {"nav", "scroll", "download", "asserts", "forms", "errors"}:
         assert required in by_category
