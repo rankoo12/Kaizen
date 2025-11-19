@@ -118,9 +118,9 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - DoD: Planner QA corpus expanded to at least 200 high-quality, labeled examples across forms, navigation, assertions, errors, downloads, and scroll flows; examples are deduplicated, categorized, and wired into the planner eval/ablation harness. Metrics by category are reported in CI artifacts.
    - Tests: Corpus invariants (minimum size and per-category counts) in eval tests; ablation harness runs against the expanded corpus without flakiness. Glue-based preview and orchestrator mappings handle every corpus intent deterministically, and eval tests fail if new phrases stop mapping cleanly.
 
-14h) Planner LLM training/export integration - STATUS: [ ]
-   - DoD: Export script produces a training-ready JSONL (or equivalent) format from the curated corpus (for example, {"input": "<QA text>", "output": "<JSON tool array>"}); basic hooks exist to evaluate a newly trained planner model via /api/plan/preview using the same QA eval harness, so we can compare tuned vs base models before flipping defaults.
-   - Tests: Unit tests for export formatting; smoke test that plugs a fake "tuned" model into /api/plan/preview and runs the ablation harness without code changes.
+14h) Planner LLM training/export integration - STATUS: [X]
+   - DoD: Export scripts produce a training-ready JSONL format from the curated corpus (for example, {"input": "<QA text>", "output": "<JSON tool array>","category":"nav|forms|..."}); basic hooks exist to evaluate a newly trained planner model via /api/plan/preview using the same QA eval harness, so we can compare tuned vs base models before flipping defaults.
+   - Tests: Unit tests for export formatting and schema ("engine/tests/eval/test_planner_training_export.py"); smoke-style test that plugs a fake "tuned" model into /api/plan/preview and drives it via the ablation harness helpers ("engine/tests/eval/test_planner_ablation.py"), ensuring preview + eval wiring can exercise an alternate model deterministically.
 
 15) Evaluation harness and leaderboard - STATUS: [X]
    - DoD: Offline, deterministic evaluation harness for snapshot element resolution is implemented (engine.eval.harness + scripts/eval_harness.py), with JSON/CSV reports under "reports/"; CI runs the harness via "make ci" so an eval report is always produced. A lightweight planner ablation harness compares glue vs LLM accuracy on a small QA corpus. Leaderboard/Grafana panels remain a future extension once metrics stabilize.
