@@ -55,7 +55,9 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
         "Example: 'reload the page' -> [{\"tool\":\"reload\",\"args\":{}}]\n"
         "Example: 'scroll down a bit' -> [{\"tool\":\"scroll\",\"args\":{\"direction\":\"down\",\"amount\":400}}]\n"
         "Example: 'open the dashboard in a new tab' -> [{\"tool\":\"newTab\",\"args\":{\"url\":\"https://app.example.com/dashboard\"}}]\n"
-        "Example: 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n\n"
+        "Example: 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n"
+        "Example: 'check that the URL contains /dashboard' -> [{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}]\n"
+        "Example: 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n\n"
     )
     return f"{header}\n{fewshots}Instruction: {text}\nJSON:"
 
@@ -114,6 +116,19 @@ def _glue_map(text: str) -> list[dict]:
         return plan
     if "close current window" in lower or lower.strip() in {"close window", "close this window"}:
         plan.append({"tool": "closeWindow", "args": {}})
+        return plan
+    # Simple QA assertions and submits
+    if lower.startswith(("assert ", "check ", "verify ")):
+        if "url contains" in lower:
+            m = re.search(r"url\s+contains\s+(\S+)", lower)
+            expected = None
+            if m:
+                expected = m.group(1).strip(" .'\"")
+            if expected:
+                plan.append({"tool": "assertUrl", "args": {"expected": expected, "match": "contains"}})
+                return plan
+    if "submit the form" in lower or "submit form" in lower:
+        plan.append({"tool": "press", "args": {"key": "Enter"}})
         return plan
     if lower.startswith("scroll"):
         direction = "down"

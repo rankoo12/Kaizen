@@ -300,6 +300,17 @@ class EngineOrchestrator(IOrchestrator):
                 plan.append({"tool": "closeTab", "args": {}})
             elif "close current window" in lower or lower.strip() in {"close window", "close this window"}:
                 plan.append({"tool": "closeWindow", "args": {}})
+            elif "submit the form" in lower or "submit form" in lower:
+                # Fall back to Enter key for generic form submit
+                plan.append({"tool": "press", "args": {"key": "Enter"}})
+            elif lower.startswith(("assert ", "check ", "verify ")):
+                if "url contains" in lower:
+                    m = re.search(r"url\s+contains\s+(\S+)", lower)
+                    expected = None
+                    if m:
+                        expected = m.group(1).strip(" .'\"")
+                    if expected:
+                        plan.append({"tool": "assertUrl", "args": {"expected": expected, "match": "contains"}})
             elif lower.startswith("scroll"):
                 direction = "down"
                 if "up" in lower or "top" in lower:
