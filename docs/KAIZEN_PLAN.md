@@ -110,6 +110,18 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - DoD: planner emits per-step traces into run JSONL logs (planner.step events with step text, planner path, and tool calls), and a small extractor turns those traces into a planner QA dataset JSONL under "reports/". A curation step normalizes text, tags categories (forms/nav/asserts/errors/downloads/scroll), deduplicates near-identical examples, and produces stable train/dev splits ready for fine-tuning.
    - Tests: Dataset extraction and curation unit tests ("engine/tests/eval/test_planner_dataset.py", "test_planner_curation.py"); manual export via "python scripts/planner_export_qa_dataset.py" followed by "python scripts/planner_curate_qa_dataset.py" produces train/dev JSONL files under "reports/" for inspection.
 
+14f) Planner training dataset contract - STATUS: [ ]
+   - DoD: JSONL schema for planner training data is documented and stable (input: QA step text plus optional category; output: ordered tool calls with tool/args); planner export + curation scripts always produce this schema and tests guard against schema drift.
+   - Tests: Schema-level unit tests over curated examples; snapshot/corpus tests that fail if required keys or field types change unexpectedly.
+
+14g) Planner QA corpus >= 200 examples - STATUS: [ ]
+   - DoD: Planner QA corpus expanded to at least 200 high-quality, labeled examples across forms, navigation, assertions, errors, downloads, and scroll flows; examples are deduplicated, categorized, and wired into the planner eval/ablation harness. Metrics by category are reported in CI artifacts.
+   - Tests: Corpus invariants (minimum size and per-category counts) in eval tests; ablation harness runs against the expanded corpus without flakiness.
+
+14h) Planner LLM training/export integration - STATUS: [ ]
+   - DoD: Export script produces a training-ready JSONL (or equivalent) format from the curated corpus (for example, {"input": "<QA text>", "output": "<JSON tool array>"}); basic hooks exist to evaluate a newly trained planner model via /api/plan/preview using the same QA eval harness, so we can compare tuned vs base models before flipping defaults.
+   - Tests: Unit tests for export formatting; smoke test that plugs a fake "tuned" model into /api/plan/preview and runs the ablation harness without code changes.
+
 15) Evaluation harness and leaderboard - STATUS: [X]
    - DoD: Offline, deterministic evaluation harness for snapshot element resolution is implemented (engine.eval.harness + scripts/eval_harness.py), with JSON/CSV reports under "reports/"; CI runs the harness via "make ci" so an eval report is always produced. A lightweight planner ablation harness compares glue vs LLM accuracy on a small QA corpus. Leaderboard/Grafana panels remain a future extension once metrics stabilize.
    - Tests: Deterministic fixture tests for aggregation ("engine/tests/eval/test_eval_aggregate.py"); planner ablation metrics tests ("engine/tests/eval/test_planner_ablation.py"); eval harness is wired into CI and remains non-flaky.
