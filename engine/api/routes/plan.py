@@ -38,7 +38,8 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
         "- assertVisible/assertText/assertUrl/custom: only use when explicitly asked to assert or run a custom script; args follow the tool name (for example, assertVisible.args.target, assertText.args.expected).\n"
         "Rules: Respond with JSON ONLY, no prose. Use safe defaults. "
         "Output MUST be a JSON array (starts with '[' and ends with ']'). "
-        "Do NOT include any other keys like model/created_at/thinking. "
+        "Do NOT include any other keys like model/created_at/thinking/analysis/steps/result. "
+        "Do NOT wrap the array inside another object (for example, do not return {\"plan\":[...]}). "
         "Do NOT invent new tool names; pick the closest tool from the list.\n"
     )
     extras = []
@@ -58,7 +59,13 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
         "Example: 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n"
         "Example: 'check that the URL contains /dashboard' -> [{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}]\n"
         "Example: 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n"
-        "Example: 'assert that Invalid password error is shown' -> [{\"tool\":\"assertText\",\"args\":{\"target\":{\"text\":\"Invalid password\"},\"expected\":\"Invalid password\",\"match\":\"contains\"}}]\n\n"
+        "Example: 'assert that Invalid password error is shown' -> [{\"tool\":\"assertText\",\"args\":{\"target\":{\"text\":\"Invalid password\"},\"expected\":\"Invalid password\",\"match\":\"contains\"}}]\n"
+        "Example: 'fill the login form and go to the dashboard' -> ["
+        "{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"Email\"},\"text\":\"user@example.com\"}},"
+        "{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"Password\"},\"text\":\"secret\"}},"
+        "{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}},"
+        "{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}"
+        "]\n\n"
     )
     return f"{header}\n{fewshots}Instruction: {text}\nJSON:"
 
