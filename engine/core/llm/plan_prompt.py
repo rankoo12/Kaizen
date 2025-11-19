@@ -55,6 +55,7 @@ def build_planner_prompt(text: str, context: Dict[str, Any] | None = None) -> st
         "- 'wait for the Login button to be visible' -> [{\"tool\":\"waitFor\",\"args\":{\"target\":{\"text\":\"Login\"},\"state\":\"visible\"}}]\n"
         "- 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n"
         "- 'check that the URL contains /dashboard' -> [{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}]\n"
-        "- 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n\n"
+        "- 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n"
+        "- 'assert that Invalid password error is shown' -> [{\"tool\":\"assertText\",\"args\":{\"target\":{\"text\":\"Invalid password\"},\"expected\":\"Invalid password\",\"match\":\"contains\"}}]\n\n"
     )
     return f"{header}\n{examples}Instruction: {text}\nJSON:"
