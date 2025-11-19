@@ -118,6 +118,75 @@ def test_plan_preview_parses_chat_wrapper(monkeypatch):
     assert plan[0]["args"]["target"]["text"] == "Name"
 
 
+def test_plan_preview_parses_openai_choices_wrapper(monkeypatch):
+    class _FakeLLM:
+        def ask(self, prompt: str) -> str:
+            # Simulate an OpenAI-style choices wrapper with message.content holding JSON
+            payload = {
+                "id": "cmpl-1",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(
+                                [
+                                    {"tool": "click", "args": {"target": {"text": "Login"}}},
+                                ]
+                            ),
+                        }
+                    }
+                ],
+            }
+            return json.dumps(payload)
+
+    class _C:
+        def llm_text(self):
+            return _FakeLLM()
+
+        def settings(self):
+            return _FakeSettings()
+
+    app = _build_app_with_container(monkeypatch, _C)
+    client = TestClient(app)
+    r = client.post("/api/plan/preview", json={"text": "Click the Login button"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["valid"] is True
+    plan = data.get("plan")
+    assert isinstance(plan, list)
+    assert plan[0]["tool"] == "click"
+    assert plan[0]["args"]["target"]["text"] == "Login"
+
+
+def test_plan_preview_unwraps_plan_field(monkeypatch):
+    class _FakeLLM:
+        def ask(self, prompt: str) -> str:
+            # Simulate a wrapper object {"plan":[...]}
+            payload = {
+                "plan": [
+                    {"tool": "press", "args": {"key": "Enter"}},
+                ]
+            }
+            return json.dumps(payload)
+
+    class _C:
+        def llm_text(self):
+            return _FakeLLM()
+
+        def settings(self):
+            return _FakeSettings()
+
+    app = _build_app_with_container(monkeypatch, _C)
+    client = TestClient(app)
+    r = client.post("/api/plan/preview", json={"text": "press enter"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["valid"] is True
+    plan = data.get("plan")
+    assert isinstance(plan, list)
+    assert plan[0]["tool"] == "press"
+
+
 def test_plan_preview_qa_flow_llm_multi_step(monkeypatch):
     class _FakeLLM:
         def ask(self, prompt: str) -> str:
