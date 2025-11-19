@@ -102,6 +102,10 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - DoD: planner/LLM understands core web navigation and manual-QA-style action intents ("go back", "reload the page", "scroll down a bit", "open the dashboard in a new tab", "switch to the second tab", "close this tab", "download the report", etc.) via an explicit tool vocabulary, prompt examples, and glue fallback; portal NL flows emit the correct navigation/scroll/action tools into engine plans; high-frequency QA commands are handled even when the LLM output is noisy.
    - Tests: "/api/plan/preview" tests for navigation, tab, scroll, and download phrases plus correct tool calls; orchestrator tests for glue behavior, including tab/download intents; portal NL run tests remain green.
 
+14d) Planner QA flows (forms/asserts/multi-step) - STATUS: [X]
+   - DoD: planner/LLM understands common manual-QA flows around forms and assertions (for example, "fill the login form and submit", "assert that the error message 'Invalid password' is shown", "check that the URL contains /dashboard") and can emit small multi-step plans using existing tools (type/click/waitFor/assertText/assertUrl/press). Glue covers high-confidence patterns ("submit the form" as Enter key, simple URL assertions) even when LLM output is noisy.
+   - Tests: "/api/plan/preview" tests for QA phrases (URL assertions and form submit), including glue fallback; orchestrator tests for glue behavior on QA-style steps (assertUrl + submit via press Enter); portal NL tests remain green and continue to enqueue plans that the orchestrator can execute via planner/LLM + glue.
+
 15) Evaluation harness and leaderboard - STATUS: [X]
    - DoD: Offline, deterministic evaluation harness for snapshot element resolution is implemented (engine.eval.harness + scripts/eval_harness.py), with JSON/CSV reports under "reports/"; CI runs the harness via "make ci" so an eval report is always produced. Leaderboard/Grafana panels remain a future extension once metrics stabilize.
    - Tests: Deterministic fixture tests for aggregation ("engine/tests/eval/test_eval_aggregate.py"); eval harness is wired into CI and remains non-flaky.
