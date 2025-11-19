@@ -110,9 +110,9 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - DoD: planner emits per-step traces into run JSONL logs (planner.step events with step text, planner path, and tool calls), and a small extractor turns those traces into a planner QA dataset JSONL under "reports/". A curation step normalizes text, tags categories (forms/nav/asserts/errors/downloads/scroll), deduplicates near-identical examples, and produces stable train/dev splits ready for fine-tuning.
    - Tests: Dataset extraction and curation unit tests ("engine/tests/eval/test_planner_dataset.py", "test_planner_curation.py"); manual export via "python scripts/planner_export_qa_dataset.py" followed by "python scripts/planner_curate_qa_dataset.py" produces train/dev JSONL files under "reports/" for inspection.
 
-14f) Planner training dataset contract - STATUS: [ ]
-   - DoD: JSONL schema for planner training data is documented and stable (input: QA step text plus optional category; output: ordered tool calls with tool/args); planner export + curation scripts always produce this schema and tests guard against schema drift.
-   - Tests: Schema-level unit tests over curated examples; snapshot/corpus tests that fail if required keys or field types change unexpectedly.
+14f) Planner training dataset contract - STATUS: [X]
+   - DoD: JSONL schema for planner training data is documented and stable (input: QA step text plus optional category; output: ordered tool calls with tool/args as a JSON array string); planner export + curation scripts always produce this schema ("planner_qa_train_export.jsonl", "planner_qa_dev_export.jsonl") and tests guard against schema drift.
+   - Tests: Schema-level unit tests over curated examples ("engine/tests/eval/test_planner_training_export.py"); snapshot/corpus tests that fail if required keys or field types change unexpectedly.
 
 14g) Planner QA corpus >= 200 examples - STATUS: [ ]
    - DoD: Planner QA corpus expanded to at least 200 high-quality, labeled examples across forms, navigation, assertions, errors, downloads, and scroll flows; examples are deduplicated, categorized, and wired into the planner eval/ablation harness. Metrics by category are reported in CI artifacts.

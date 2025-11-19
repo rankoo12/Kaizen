@@ -144,3 +144,34 @@ def split_train_dev(examples: List[Dict[str, Any]], dev_every: int = 5) -> Tuple
         else:
             train.append(ex)
     return train, dev
+
+
+def build_training_examples(examples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert curated planner examples into training-ready examples.
+
+    Output schema (per line in JSONL):
+      - id: original example id (if present)
+      - input: QA step text (normalized)
+      - output: JSON string of the tools array (e.g., '[{...}]')
+      - category: inferred category (forms/nav/asserts/errors/downloads/scroll/generic)
+    """
+    out: List[Dict[str, Any]] = []
+    for ex in examples:
+        try:
+            text = ex.get("text")
+            tools = ex.get("tools") or []
+            if not isinstance(text, str) or not tools:
+                continue
+            # For training, we serialize tools as a compact JSON string
+            output = json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
+            out.append(
+                {
+                    "id": ex.get("id"),
+                    "input": text,
+                    "output": output,
+                    "category": ex.get("category") or "generic",
+                }
+            )
+        except Exception:
+            continue
+    return out
