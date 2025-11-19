@@ -267,7 +267,7 @@ class EngineOrchestrator(IOrchestrator):
             # Navigation, tab/window, scroll, and basic actions
             if "go back" in lower or lower.strip() in {"back", "previous page", "previous screen"}:
                 plan.append({"tool": "back", "args": {}})
-            elif "go forward" in lower or lower.strip() in {"forward", "next page", "next screen"}:
+            elif "go forward" in lower or "next page" in lower or "next screen" in lower or lower.strip() in {"forward"}:
                 plan.append({"tool": "forward", "args": {}})
             elif "reload" in lower or "refresh" in lower:
                 plan.append({"tool": "reload", "args": {}})
