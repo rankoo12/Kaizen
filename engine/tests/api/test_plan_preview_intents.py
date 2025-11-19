@@ -75,3 +75,11 @@ def test_preview_tab_navigation_and_download_intents(monkeypatch):
     plan4 = _preview(monkeypatch, "download the report")
     assert plan4[0]["tool"] == "download"
     assert plan4[0]["args"]["target"]["text"] == "the report"
+
+
+def test_preview_assert_url_contains(monkeypatch):
+    plan = _preview(monkeypatch, "check that the URL contains /dashboard")
+    assert isinstance(plan, list)
+    assert plan[0]["tool"] == "assertUrl"
+    assert plan[0]["args"]["expected"] == "/dashboard"
+    assert plan[0]["args"]["match"] == "contains"
