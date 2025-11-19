@@ -55,18 +55,66 @@ def qa_corpus() -> List[QACase]:
                 "nav",
             ),
             QACase(
+                "nav_new_tab_profile",
+                "open profile in a new tab",
+                ["newTab"],
+                "nav",
+            ),
+            QACase(
+                "nav_new_tab_reports",
+                "open reports in a new tab",
+                ["newTab"],
+                "nav",
+            ),
+            QACase(
                 "nav_new_window",
                 "open a new window",
                 ["newWindow"],
                 "nav",
             ),
+            QACase(
+                "nav_new_window_login",
+                "open the login page in a new window",
+                ["newWindow"],
+                "nav",
+            ),
             QACase("nav_switch_tab_2", "switch to tab 2", ["switchTab"], "nav"),
             QACase("nav_go_to_tab_3", "go to tab 3", ["switchTab"], "nav"),
+            QACase(
+                "nav_switch_tab_1",
+                "switch back to the first tab",
+                ["switchTab"],
+                "nav",
+            ),
+            QACase(
+                "nav_switch_tab_4",
+                "switch to tab 4",
+                ["switchTab"],
+                "nav",
+            ),
             QACase("nav_close_tab", "close this tab", ["closeTab"], "nav"),
             QACase("nav_close_current_tab", "close current tab", ["closeTab"], "nav"),
+            QACase(
+                "nav_close_current_tab_words",
+                "close the current tab",
+                ["closeTab"],
+                "nav",
+            ),
             QACase("nav_close_window", "close current window", ["closeWindow"], "nav"),
+            QACase(
+                "nav_close_this_window",
+                "close this window",
+                ["closeWindow"],
+                "nav",
+            ),
             QACase("nav_switch_window_2", "switch to window 2", ["switchWindow"], "nav"),
             QACase("nav_switch_window_1", "switch to window 1", ["switchWindow"], "nav"),
+            QACase(
+                "nav_switch_window_3",
+                "switch to window 3",
+                ["switchWindow"],
+                "nav",
+            ),
         ]
     )
 
@@ -116,6 +164,36 @@ def qa_corpus() -> List[QACase]:
             ),
             QACase("scroll_left_bit", "scroll left a bit", ["scroll"], "scroll"),
             QACase("scroll_right_bit", "scroll right a bit", ["scroll"], "scroll"),
+            QACase(
+                "scroll_down_section",
+                "scroll down to the details section",
+                ["scroll"],
+                "scroll",
+            ),
+            QACase(
+                "scroll_down_activity",
+                "scroll down to recent activity",
+                ["scroll"],
+                "scroll",
+            ),
+            QACase(
+                "scroll_down_comments",
+                "scroll down to the comments",
+                ["scroll"],
+                "scroll",
+            ),
+            QACase(
+                "scroll_up_navbar",
+                "scroll up to the navigation bar",
+                ["scroll"],
+                "scroll",
+            ),
+            QACase(
+                "scroll_up_filters",
+                "scroll up to the filters",
+                ["scroll"],
+                "scroll",
+            ),
         ]
     )
 
@@ -174,6 +252,36 @@ def qa_corpus() -> List[QACase]:
                 ["download"],
                 "download",
             ),
+            QACase(
+                "download_test_results",
+                "download test-results.json",
+                ["download"],
+                "download",
+            ),
+            QACase(
+                "download_run_artifacts",
+                "download the run artifacts zip",
+                ["download"],
+                "download",
+            ),
+            QACase(
+                "download_usage_report",
+                "download the usage report",
+                ["download"],
+                "download",
+            ),
+            QACase(
+                "download_billing_csv",
+                "download the billing CSV",
+                ["download"],
+                "download",
+            ),
+            QACase(
+                "download_export_json",
+                "download export.json",
+                ["download"],
+                "download",
+            ),
         ]
     )
 
@@ -217,6 +325,30 @@ def qa_corpus() -> List[QACase]:
                 "asserts",
             ),
             QACase(
+                "url_contains_billing",
+                "check that the url contains /billing",
+                ["assertUrl"],
+                "asserts",
+            ),
+            QACase(
+                "url_contains_profile_page",
+                "verify that the url contains /profile",
+                ["assertUrl"],
+                "asserts",
+            ),
+            QACase(
+                "url_contains_projects",
+                "assert that the url contains /projects",
+                ["assertUrl"],
+                "asserts",
+            ),
+            QACase(
+                "url_contains_admin",
+                "check that url contains /admin",
+                ["assertUrl"],
+                "asserts",
+            ),
+            QACase(
                 "error_invalid_password",
                 "assert that 'Invalid password' is shown",
                 ["assertText"],
@@ -243,6 +375,18 @@ def qa_corpus() -> List[QACase]:
             QACase(
                 "error_invalid_email",
                 "check that 'Invalid email address' error is visible",
+                ["assertText"],
+                "errors",
+            ),
+            QACase(
+                "error_terms_required",
+                "check that 'You must accept the terms' error is visible",
+                ["assertText"],
+                "errors",
+            ),
+            QACase(
+                "error_code_expired",
+                "assert that 'Code expired' is shown",
                 ["assertText"],
                 "errors",
             ),
@@ -288,6 +432,24 @@ def qa_corpus() -> List[QACase]:
                 ["assertText"],
                 "asserts",
             ),
+            QACase(
+                "text_logout_successful",
+                "check that 'You have been logged out' is visible",
+                ["assertText"],
+                "asserts",
+            ),
+            QACase(
+                "text_run_completed",
+                "verify that 'Run completed successfully' appears",
+                ["assertText"],
+                "asserts",
+            ),
+            QACase(
+                "text_changes_saved",
+                "assert that 'Changes saved' is visible",
+                ["assertText"],
+                "asserts",
+            ),
         ]
     )
 
@@ -296,6 +458,18 @@ def qa_corpus() -> List[QACase]:
         [
             QACase("submit_form", "submit the form", ["press"], "forms"),
             QACase("submit_form_short", "submit form", ["press"], "forms"),
+            QACase(
+                "submit_form_now",
+                "submit the form now",
+                ["press"],
+                "forms",
+            ),
+            QACase(
+                "submit_registration_form",
+                "submit the registration form",
+                ["press"],
+                "forms",
+            ),
             QACase(
                 "type_email",
                 "type user@example.com into email field",
@@ -368,6 +542,96 @@ def qa_corpus() -> List[QACase]:
                 ["type"],
                 "forms",
             ),
+            QACase(
+                "type_org_name_field",
+                "type acme inc into organization name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_city_field",
+                "type tel aviv into city field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_country_field",
+                "type israel into country field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_search_term_again",
+                "type dashboard into search box",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_project_name",
+                "type my project into project name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_env_name",
+                "type staging into environment name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_branch_name",
+                "type main into branch field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_tag_name",
+                "type v1.0.0 into tag field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_note_field",
+                "type this is a note into note field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_description_field",
+                "type my description into description field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_filter_value",
+                "type success into filter field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_label_field",
+                "type smoke into label field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_suite_name",
+                "type login suite into suite name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_run_name",
+                "type nightly run into run name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "type_comment_again",
+                "type another comment into comment box",
+                ["type"],
+                "forms",
+            ),
         ]
     )
 
@@ -393,6 +657,254 @@ def qa_corpus() -> List[QACase]:
             QACase("press_arrow_down", "press ArrowDown", ["press"], "actions"),
             QACase("press_arrow_up", "press ArrowUp", ["press"], "actions"),
             QACase("press_tab_key", "press Tab key", ["press"], "actions"),
+            QACase("click_filter", "click Filter", ["click"], "actions"),
+            QACase("click_apply", "click Apply", ["click"], "actions"),
+            QACase("click_reset", "click Reset", ["click"], "actions"),
+            QACase("click_delete", "click Delete", ["click"], "actions"),
+            QACase("click_confirm", "click Confirm", ["click"], "actions"),
+            QACase("click_retry", "click Retry", ["click"], "actions"),
+            QACase("click_download_button", "click Download", ["click"], "actions"),
+            QACase("click_view_details", "click View details", ["click"], "actions"),
+            QACase("press_enter_to_submit", "press Enter to submit", ["press"], "actions"),
+            QACase("press_escape_to_close", "press Escape to close", ["press"], "actions"),
+            QACase("click_open", "click Open", ["click"], "actions"),
+            QACase("click_close", "click Close", ["click"], "actions"),
+            QACase("click_ok", "click OK", ["click"], "actions"),
+            QACase("click_back_button", "click Back", ["click"], "actions"),
+            QACase("click_dashboard_link", "click Dashboard", ["click"], "actions"),
+            QACase("click_settings_link", "click Settings", ["click"], "actions"),
+            QACase("click_logout_link", "click Logout", ["click"], "actions"),
+            QACase("press_enter_to_login", "press Enter to login", ["press"], "actions"),
+            QACase("press_escape_to_cancel", "press Escape to cancel", ["press"], "actions"),
+            QACase(
+                "press_tab_to_next_field",
+                "press Tab to go to the next field",
+                ["press"],
+                "actions",
+            ),
+        ]
+    )
+
+    # Extra QA phrases to grow the corpus while staying glue-friendly
+    cases.extend(
+        [
+            # Extra forms (all start with 'type ' so they map to type)
+            QACase(
+                "extra_form_full_name",
+                "type john smith into full name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_full_name_caps",
+                "type JOHN SMITH into full name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_secondary_email",
+                "type secondary@example.com into email field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_backup_email",
+                "type backup@example.com into email field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_alt_phone",
+                "type 555-0000 into phone field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_city_alt",
+                "type london into city field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_country_alt",
+                "type uk into country field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_search_users",
+                "type users into search box",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_search_projects",
+                "type projects into search box",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_search_suites",
+                "type suites into search box",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_filter_failed",
+                "type failed into filter field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_filter_passed",
+                "type passed into filter field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_label_critical",
+                "type critical into label field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_label_minor",
+                "type minor into label field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_env_dev",
+                "type dev into environment name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_env_staging",
+                "type staging into environment name field again",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_env_prod",
+                "type prod into environment name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_suite_checkout",
+                "type checkout suite into suite name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_suite_search",
+                "type search suite into suite name field",
+                ["type"],
+                "forms",
+            ),
+            QACase(
+                "extra_form_run_smoke",
+                "type smoke run into run name field",
+                ["type"],
+                "forms",
+            ),
+            # Extra actions (start with 'click ' or 'press ' so glue maps)
+            QACase("extra_action_click_submit", "click Submit", ["click"], "actions"),
+            QACase(
+                "extra_action_click_submit_changes",
+                "click Submit changes",
+                ["click"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_click_save_changes",
+                "click Save changes",
+                ["click"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_click_cancel_changes",
+                "click Cancel changes",
+                ["click"],
+                "actions",
+            ),
+            QACase("extra_action_click_edit", "click Edit", ["click"], "actions"),
+            QACase("extra_action_click_remove", "click Remove", ["click"], "actions"),
+            QACase("extra_action_click_disable", "click Disable", ["click"], "actions"),
+            QACase("extra_action_click_enable", "click Enable", ["click"], "actions"),
+            QACase(
+                "extra_action_click_view_report",
+                "click View report",
+                ["click"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_click_view_logs",
+                "click View logs",
+                ["click"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_enter_to_apply",
+                "press Enter to apply",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_enter_to_confirm",
+                "press Enter to confirm",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_enter_to_continue",
+                "press Enter to continue",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_escape_to_close_dialog",
+                "press Escape to close dialog",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_escape_to_clear",
+                "press Escape to clear selection",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_tab_to_focus_next",
+                "press Tab to focus the next field",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_tab_to_focus_previous",
+                "press Tab to focus the previous field",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_space_to_toggle",
+                "press Space to toggle checkbox",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_arrow_down_to_scroll",
+                "press ArrowDown to scroll",
+                ["press"],
+                "actions",
+            ),
+            QACase(
+                "extra_action_press_arrow_up_to_scroll",
+                "press ArrowUp to scroll",
+                ["press"],
+                "actions",
+            ),
         ]
     )
 

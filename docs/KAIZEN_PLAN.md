@@ -114,9 +114,9 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - DoD: JSONL schema for planner training data is documented and stable (input: QA step text plus optional category; output: ordered tool calls with tool/args as a JSON array string); planner export + curation scripts always produce this schema ("planner_qa_train_export.jsonl", "planner_qa_dev_export.jsonl") and tests guard against schema drift.
    - Tests: Schema-level unit tests over curated examples ("engine/tests/eval/test_planner_training_export.py"); snapshot/corpus tests that fail if required keys or field types change unexpectedly.
 
-14g) Planner QA corpus >= 200 examples - STATUS: [ ]
+14g) Planner QA corpus >= 200 examples - STATUS: [X]
    - DoD: Planner QA corpus expanded to at least 200 high-quality, labeled examples across forms, navigation, assertions, errors, downloads, and scroll flows; examples are deduplicated, categorized, and wired into the planner eval/ablation harness. Metrics by category are reported in CI artifacts.
-   - Tests: Corpus invariants (minimum size and per-category counts) in eval tests; ablation harness runs against the expanded corpus without flakiness.
+   - Tests: Corpus invariants (minimum size and per-category counts) in eval tests; ablation harness runs against the expanded corpus without flakiness. Glue-based preview and orchestrator mappings handle every corpus intent deterministically, and eval tests fail if new phrases stop mapping cleanly.
 
 14h) Planner LLM training/export integration - STATUS: [ ]
    - DoD: Export script produces a training-ready JSONL (or equivalent) format from the curated corpus (for example, {"input": "<QA text>", "output": "<JSON tool array>"}); basic hooks exist to evaluate a newly trained planner model via /api/plan/preview using the same QA eval harness, so we can compare tuned vs base models before flipping defaults.

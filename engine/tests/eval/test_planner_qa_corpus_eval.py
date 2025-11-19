@@ -70,7 +70,7 @@ def test_planner_qa_glue_corpus_all_pass(monkeypatch):
         by_category[case.category] = by_category.get(case.category, 0) + 1
 
     # Guardrail: corpus should keep growing as we expand QA coverage
-    assert total >= 60
+    assert total >= 200
     assert passed == total  # glue should handle all of these deterministic QA intents
     # Ensure we keep coverage for key QA categories
     for required in {"nav", "scroll", "download", "asserts", "forms", "errors", "actions"}:

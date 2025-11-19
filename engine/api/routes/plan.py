@@ -89,6 +89,9 @@ def _glue_map(text: str) -> list[dict]:
         plan.append({"tool": "reload", "args": {}})
         return plan
     # Tab/window navigation
+    if "first tab" in lower and "switch" in lower:
+        plan.append({"tool": "switchTab", "args": {"index": 0}})
+        return plan
     if "new tab" in lower:
         plan.append({"tool": "newTab", "args": {}})
         return plan
@@ -119,7 +122,7 @@ def _glue_map(text: str) -> list[dict]:
             if args2:
                 plan.append({"tool": "switchWindow", "args": args2})
                 return plan
-    if "close current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
+    if "close current tab" in lower or "close the current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
         plan.append({"tool": "closeTab", "args": {}})
         return plan
     if "close current window" in lower or lower.strip() in {"close window", "close this window"}:
@@ -153,7 +156,7 @@ def _glue_map(text: str) -> list[dict]:
                     }
                 )
                 return plan
-    if "submit the form" in lower or "submit form" in lower:
+    if "submit the form" in lower or "submit form" in lower or (lower.startswith("submit ") and " form" in lower):
         plan.append({"tool": "press", "args": {"key": "Enter"}})
         return plan
     if lower.startswith("scroll"):

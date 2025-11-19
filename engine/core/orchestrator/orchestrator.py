@@ -271,6 +271,8 @@ class EngineOrchestrator(IOrchestrator):
                 plan.append({"tool": "forward", "args": {}})
             elif "reload" in lower or "refresh" in lower:
                 plan.append({"tool": "reload", "args": {}})
+            elif "first tab" in lower and "switch" in lower:
+                plan.append({"tool": "switchTab", "args": {"index": 0}})
             elif "new tab" in lower:
                 plan.append({"tool": "newTab", "args": {}})
             elif "new window" in lower:
@@ -297,11 +299,11 @@ class EngineOrchestrator(IOrchestrator):
                         pass
                     if args2:
                         plan.append({"tool": "switchWindow", "args": args2})
-            elif "close current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
+            elif "close current tab" in lower or "close the current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
                 plan.append({"tool": "closeTab", "args": {}})
             elif "close current window" in lower or lower.strip() in {"close window", "close this window"}:
                 plan.append({"tool": "closeWindow", "args": {}})
-            elif "submit the form" in lower or "submit form" in lower:
+            elif "submit the form" in lower or "submit form" in lower or (lower.startswith("submit ") and " form" in lower):
                 # Fall back to Enter key for generic form submit
                 plan.append({"tool": "press", "args": {"key": "Enter"}})
             elif lower.startswith(("assert ", "check ", "verify ")):
