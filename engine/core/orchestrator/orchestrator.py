@@ -228,7 +228,7 @@ class EngineOrchestrator(IOrchestrator):
                 steps = getattr(spec, "steps", []) or []
         except Exception:
             steps = []
-        for s in steps:
+        for idx, s in enumerate(steps):
             text = None
             if isinstance(s, dict):
                 text = s.get("text")
@@ -236,6 +236,7 @@ class EngineOrchestrator(IOrchestrator):
                 text = getattr(s, "text", None) if hasattr(s, "text") else None
             if not text or not isinstance(text, str):
                 continue
+            before_len = len(plan)
             if planner_path == "llm" and self._llm is not None:
                 # Use strict JSON-only prompt and validate; fallback to glue on any failure
                 try:
@@ -368,6 +369,20 @@ class EngineOrchestrator(IOrchestrator):
                 except Exception:
                     key = key_raw
                 plan.append({"tool": "press", "args": {"key": key}})
+            # Emit planner trace for this step (per-step examples for QA dataset)
+            if run_logger is not None and len(plan) > before_len:
+                try:
+                    step_tools = plan[before_len:]
+                    run_logger.info(
+                        "planner.step",
+                        step_index=idx,
+                        text=text,
+                        planner_path=planner_path,
+                        tools=step_tools,
+                    )
+                except Exception:
+                    # never fail planning due to logging
+                    pass
 
         # Validate and execute
         self._validate(plan)
