@@ -311,6 +311,22 @@ class EngineOrchestrator(IOrchestrator):
                         expected = m.group(1).strip(" .'\"")
                     if expected:
                         plan.append({"tool": "assertUrl", "args": {"expected": expected, "match": "contains"}})
+                elif "'" in text or '"' in text:
+                    m = re.search(r"'([^']+)'", text)
+                    if not m:
+                        m = re.search(r"\"([^\"]+)\"", text)
+                    expected_text = m.group(1).strip() if m else ""
+                    if expected_text:
+                        plan.append(
+                            {
+                                "tool": "assertText",
+                                "args": {
+                                    "target": {"text": expected_text},
+                                    "expected": expected_text,
+                                    "match": "contains",
+                                },
+                            }
+                        )
             elif lower.startswith("scroll"):
                 direction = "down"
                 if "up" in lower or "top" in lower:

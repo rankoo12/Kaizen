@@ -81,6 +81,12 @@ def _qa_corpus() -> list[QACase]:
             category="asserts",
         ),
         QACase(
+            case_id="error_invalid_password",
+            text="assert that 'Invalid password' is shown",
+            expected_tools=["assertText"],
+            category="asserts",
+        ),
+        QACase(
             case_id="submit_form",
             text="submit the form",
             expected_tools=["press"],

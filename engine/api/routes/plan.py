@@ -57,7 +57,8 @@ def _build_prompt(text: str, context: Dict[str, Any] | None = None) -> str:
         "Example: 'open the dashboard in a new tab' -> [{\"tool\":\"newTab\",\"args\":{\"url\":\"https://app.example.com/dashboard\"}}]\n"
         "Example: 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n"
         "Example: 'check that the URL contains /dashboard' -> [{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}]\n"
-        "Example: 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n\n"
+        "Example: 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n"
+        "Example: 'assert that Invalid password error is shown' -> [{\"tool\":\"assertText\",\"args\":{\"target\":{\"text\":\"Invalid password\"},\"expected\":\"Invalid password\",\"match\":\"contains\"}}]\n\n"
     )
     return f"{header}\n{fewshots}Instruction: {text}\nJSON:"
 
@@ -126,6 +127,24 @@ def _glue_map(text: str) -> list[dict]:
                 expected = m.group(1).strip(" .'\"")
             if expected:
                 plan.append({"tool": "assertUrl", "args": {"expected": expected, "match": "contains"}})
+                return plan
+        # Error/message text assertion when a quoted string is present
+        if "'" in t or '"' in t:
+            m = re.search(r"'([^']+)'", t)
+            if not m:
+                m = re.search(r"\"([^\"]+)\"", t)
+            expected_text = m.group(1).strip() if m else ""
+            if expected_text:
+                plan.append(
+                    {
+                        "tool": "assertText",
+                        "args": {
+                            "target": {"text": expected_text},
+                            "expected": expected_text,
+                            "match": "contains",
+                        },
+                    }
+                )
                 return plan
     if "submit the form" in lower or "submit form" in lower:
         plan.append({"tool": "press", "args": {"key": "Enter"}})

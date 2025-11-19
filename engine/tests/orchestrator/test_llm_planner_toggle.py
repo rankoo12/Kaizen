@@ -185,3 +185,31 @@ def test_glue_planner_maps_assert_url_and_submit():
     assert plan[1]["args"]["match"] == "contains"
     assert plan[2]["tool"] == "press"
     assert plan[2]["args"]["key"] == "Enter"
+
+
+def test_glue_planner_maps_assert_text_error():
+    ex = _FakeExecutor()
+    orch = EngineOrchestrator(
+        planner=_FakePlanner(),
+        plan_executor=ex,
+        snapshot_runner=None,
+        storage=_FakeStorage(),
+        log=None,
+        reporter=None,
+        llm=None,
+        settings=_GlueSettings(),
+    )
+
+    class Spec4:
+        id = "qa2"
+        steps = [type("S", (), {"text": "assert that 'Invalid password' is shown"})()]
+
+    run_id = orch.run_live(Spec4())
+    assert run_id == "run-qa2"
+    plan = ex.calls[0]
+    assert plan[0]["tool"] == "open"
+    assert plan[1]["tool"] == "assertText"
+    args = plan[1]["args"]
+    assert args["expected"] == "Invalid password"
+    assert args["match"] == "contains"
+    assert args["target"]["text"] == "Invalid password"

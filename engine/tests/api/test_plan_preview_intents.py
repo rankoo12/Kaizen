@@ -83,3 +83,13 @@ def test_preview_assert_url_contains(monkeypatch):
     assert plan[0]["tool"] == "assertUrl"
     assert plan[0]["args"]["expected"] == "/dashboard"
     assert plan[0]["args"]["match"] == "contains"
+
+
+def test_preview_assert_text_error_message(monkeypatch):
+    plan = _preview(monkeypatch, "assert that 'Invalid password' is shown")
+    assert isinstance(plan, list)
+    assert plan[0]["tool"] == "assertText"
+    args = plan[0]["args"]
+    assert args["expected"] == "Invalid password"
+    assert args["match"] == "contains"
+    assert args["target"]["text"] == "Invalid password"
