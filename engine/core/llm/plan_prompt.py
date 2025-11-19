@@ -53,6 +53,8 @@ def build_planner_prompt(text: str, context: Dict[str, Any] | None = None) -> st
         "- 'upload \"resume.pdf\"' -> [{\"tool\":\"upload\",\"args\":{\"target\":{\"text\":\"Upload\"},\"files\":[\"resume.pdf\"]}}]\n"
         "- 'drag card A onto column B' -> [{\"tool\":\"dragAndDrop\",\"args\":{\"target\":{\"text\":\"card A\"},\"to\":{\"text\":\"column B\"}}}]\n"
         "- 'wait for the Login button to be visible' -> [{\"tool\":\"waitFor\",\"args\":{\"target\":{\"text\":\"Login\"},\"state\":\"visible\"}}]\n"
-        "- 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n\n"
+        "- 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n"
+        "- 'check that the URL contains /dashboard' -> [{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}]\n"
+        "- 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n\n"
     )
     return f"{header}\n{examples}Instruction: {text}\nJSON:"

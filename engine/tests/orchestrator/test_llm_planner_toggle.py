@@ -154,3 +154,34 @@ def test_glue_planner_maps_tab_and_download_intents():
     assert run_id == "run-nav2"
     plan = ex.calls[0]
     assert [p["tool"] for p in plan[:5]] == ["open", "newTab", "switchTab", "closeTab", "download"]
+
+
+def test_glue_planner_maps_assert_url_and_submit():
+    ex = _FakeExecutor()
+    orch = EngineOrchestrator(
+        planner=_FakePlanner(),
+        plan_executor=ex,
+        snapshot_runner=None,
+        storage=_FakeStorage(),
+        log=None,
+        reporter=None,
+        llm=None,
+        settings=_GlueSettings(),
+    )
+
+    class Spec3:
+        id = "qa1"
+        steps = [
+            type("S", (), {"text": "check that the URL contains /dashboard"})(),
+            type("S", (), {"text": "submit the form"})(),
+        ]
+
+    run_id = orch.run_live(Spec3())
+    assert run_id == "run-qa1"
+    plan = ex.calls[0]
+    assert plan[0]["tool"] == "open"
+    assert plan[1]["tool"] == "assertUrl"
+    assert plan[1]["args"]["expected"] == "/dashboard"
+    assert plan[1]["args"]["match"] == "contains"
+    assert plan[2]["tool"] == "press"
+    assert plan[2]["args"]["key"] == "Enter"
