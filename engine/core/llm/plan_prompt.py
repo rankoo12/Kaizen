@@ -31,8 +31,9 @@ def build_planner_prompt(text: str, context: Dict[str, Any] | None = None) -> st
         "- download: {\"tool\":\"download\",\"args\":{\"target\": {...}|optional,\"url\": string|optional,\"filename\": string|optional,\"checksum\": string|optional,\"algo\": \"sha256\"|optional}}\n"
         "- assertVisible/assertText/assertUrl/custom: only use when explicitly asked to assert or run a custom script; args follow the tool name (for example, assertVisible.args.target, assertText.args.expected).\n"
         "Rules: Respond with JSON ONLY (no prose). Output MUST be a JSON array. "
-        "Do NOT include keys like model/created_at/thinking. Do NOT invent new tool "
-        "names; pick the closest tool from the list.\n"
+        "Do NOT include keys like model/created_at/thinking/analysis/steps/result. "
+        "Do NOT wrap the array inside another object (for example, do not return {\"plan\":[...]}). "
+        "Do NOT invent new tool names; pick the closest tool from the list.\n"
     )
     extras = []
     if isinstance(ctx.get("url"), str):
@@ -56,6 +57,12 @@ def build_planner_prompt(text: str, context: Dict[str, Any] | None = None) -> st
         "- 'download the report' -> [{\"tool\":\"download\",\"args\":{\"target\":{\"text\":\"report\"}}}]\n"
         "- 'check that the URL contains /dashboard' -> [{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}]\n"
         "- 'submit the form' -> [{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}}]\n"
-        "- 'assert that Invalid password error is shown' -> [{\"tool\":\"assertText\",\"args\":{\"target\":{\"text\":\"Invalid password\"},\"expected\":\"Invalid password\",\"match\":\"contains\"}}]\n\n"
+        "- 'assert that Invalid password error is shown' -> [{\"tool\":\"assertText\",\"args\":{\"target\":{\"text\":\"Invalid password\"},\"expected\":\"Invalid password\",\"match\":\"contains\"}}]\n"
+        "- 'fill the login form and go to the dashboard' -> ["
+        "{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"Email\"},\"text\":\"user@example.com\"}},"
+        "{\"tool\":\"type\",\"args\":{\"target\":{\"text\":\"Password\"},\"text\":\"secret\"}},"
+        "{\"tool\":\"press\",\"args\":{\"key\":\"Enter\"}},"
+        "{\"tool\":\"assertUrl\",\"args\":{\"expected\":\"/dashboard\",\"match\":\"contains\"}}"
+        "]\n\n"
     )
     return f"{header}\n{examples}Instruction: {text}\nJSON:"
