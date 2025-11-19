@@ -283,17 +283,31 @@ def preview_plan(request: Request, body: Dict[str, Any]) -> Dict[str, Any]:
         plan = None
     # 2) If parsed as object, try typical fields that carry content
     if isinstance(plan, dict):
-        # Some models return a wrapper object; try 'response' or chat 'message.content'
-        content = plan.get("response") if isinstance(plan.get("response"), str) else None
-        if not content:
-            msg = plan.get("message")
-            if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                content = msg.get("content")
-        if content:
-            try:
-                plan = json.loads(content)
-            except Exception:
-                plan = None
+        # Some models return a wrapper object; handle a few common shapes:
+        # - {"plan": [ ... ]}
+        # - {"response": "[...]"}
+        # - {"message": {"content": "[...]"}} (chat-style)
+        # - {"choices":[{"message":{"content":"[...]"}}, ...]} (OpenAI-style)
+        if isinstance(plan.get("plan"), list):
+            plan = plan.get("plan")
+        else:
+            content = plan.get("response") if isinstance(plan.get("response"), str) else None
+            if not content:
+                msg = plan.get("message")
+                if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                    content = msg.get("content")
+            if not content:
+                choices = plan.get("choices")
+                if isinstance(choices, list) and choices:
+                    first = choices[0] or {}
+                    msg = first.get("message") or first.get("delta") or {}
+                    if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                        content = msg.get("content")
+            if content:
+                try:
+                    plan = json.loads(content)
+                except Exception:
+                    plan = None
     # 3) Heuristic: bracket slice from the raw string
     if not isinstance(plan, list):
         try:
