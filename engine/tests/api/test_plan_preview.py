@@ -116,3 +116,35 @@ def test_plan_preview_parses_chat_wrapper(monkeypatch):
     assert isinstance(plan, list)
     assert plan[0]["tool"] == "click"
     assert plan[0]["args"]["target"]["text"] == "Name"
+
+
+def test_plan_preview_qa_flow_llm_multi_step(monkeypatch):
+    class _FakeLLM:
+        def ask(self, prompt: str) -> str:
+            # Simulate a typical QA flow over a login form:
+            # type email, type password, press Enter, then assert URL
+            return json.dumps(
+                [
+                    {"tool": "type", "args": {"target": {"text": "Email"}, "text": "user@example.com"}},
+                    {"tool": "type", "args": {"target": {"text": "Password"}, "text": "secret"}},
+                    {"tool": "press", "args": {"key": "Enter"}},
+                    {"tool": "assertUrl", "args": {"expected": "/dashboard", "match": "contains"}},
+                ]
+            )
+
+    class _C:
+        def llm_text(self):
+            return _FakeLLM()
+
+        def settings(self):
+            return _FakeSettings()
+
+    app = _build_app_with_container(monkeypatch, _C)
+    client = TestClient(app)
+    r = client.post("/api/plan/preview", json={"text": "fill the login form and go to the dashboard"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["valid"] is True
+    plan = data.get("plan")
+    assert isinstance(plan, list)
+    assert [step["tool"] for step in plan] == ["type", "type", "press", "assertUrl"]
