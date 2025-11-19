@@ -107,8 +107,8 @@ P2 - Learning and Retrieval (Toward "Super Bot")
    - Tests: "/api/plan/preview" tests for QA phrases (URL assertions and form submit) in both glue and LLM modes (multi-step JSON fixtures); orchestrator tests for glue behavior on QA-style steps (assertUrl + submit via press Enter); portal NL tests remain green and continue to enqueue plans that the orchestrator can execute via planner/LLM + glue.
 
 14e) Planner traces and QA dataset - STATUS: [X]
-   - DoD: planner emits per-step traces into run JSONL logs (planner.step events with step text, planner path, and tool calls), and a small extractor turns those traces into a planner QA dataset JSONL under "reports/". No secrets or PII are logged; traces are limited to step text and tool arguments already present in specs/plans.
-   - Tests: Dataset extraction unit test ("engine/tests/eval/test_planner_dataset.py"); manual export via "python scripts/planner_export_qa_dataset.py" produces a JSONL file under "reports/" for inspection.
+   - DoD: planner emits per-step traces into run JSONL logs (planner.step events with step text, planner path, and tool calls), and a small extractor turns those traces into a planner QA dataset JSONL under "reports/". A curation step normalizes text, tags categories (forms/nav/asserts/errors/downloads/scroll), deduplicates near-identical examples, and produces stable train/dev splits ready for fine-tuning.
+   - Tests: Dataset extraction and curation unit tests ("engine/tests/eval/test_planner_dataset.py", "test_planner_curation.py"); manual export via "python scripts/planner_export_qa_dataset.py" followed by "python scripts/planner_curate_qa_dataset.py" produces train/dev JSONL files under "reports/" for inspection.
 
 15) Evaluation harness and leaderboard - STATUS: [X]
    - DoD: Offline, deterministic evaluation harness for snapshot element resolution is implemented (engine.eval.harness + scripts/eval_harness.py), with JSON/CSV reports under "reports/"; CI runs the harness via "make ci" so an eval report is always produced. Leaderboard/Grafana panels remain a future extension once metrics stabilize.
