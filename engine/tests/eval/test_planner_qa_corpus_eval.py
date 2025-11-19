@@ -10,6 +10,8 @@ from engine.eval.qa_corpus import QACase, qa_corpus
 
 class _FakeSettings:
     OLLAMA_MODEL = "test-model"
+    PREVIEW_RATE_WINDOW_SEC = 60
+    PREVIEW_RATE_MAX_REQUESTS = 1000
 
 
 def _build_app_with_container(monkeypatch, fake_container):
@@ -67,8 +69,17 @@ def test_planner_qa_glue_corpus_all_pass(monkeypatch):
             passed += 1
         by_category[case.category] = by_category.get(case.category, 0) + 1
 
-    assert total >= 20  # guardrail: do not shrink corpus silently
+    # Guardrail: corpus should keep growing as we expand QA coverage
+    assert total >= 60
     assert passed == total  # glue should handle all of these deterministic QA intents
     # Ensure we keep coverage for key QA categories
-    for required in {"nav", "scroll", "download", "asserts", "forms", "errors"}:
+    for required in {"nav", "scroll", "download", "asserts", "forms", "errors", "actions"}:
         assert required in by_category
+    # Basic per-category minimums so we do not regress coverage silently
+    assert by_category["nav"] >= 10
+    assert by_category["scroll"] >= 8
+    assert by_category["download"] >= 8
+    assert by_category["asserts"] >= 8
+    assert by_category["errors"] >= 3
+    assert by_category["forms"] >= 10
+    assert by_category["actions"] >= 10
