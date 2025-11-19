@@ -82,7 +82,7 @@ def _glue_map(text: str) -> list[dict]:
     if "go back" in lower or lower.strip() in {"back", "previous page", "previous screen"}:
         plan.append({"tool": "back", "args": {}})
         return plan
-    if "go forward" in lower or lower.strip() in {"forward", "next page", "next screen"}:
+    if "go forward" in lower or "next page" in lower or "next screen" in lower or lower.strip() in {"forward"}:
         plan.append({"tool": "forward", "args": {}})
         return plan
     if "reload" in lower or "refresh" in lower:
