@@ -186,8 +186,9 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **Progress:** Baseline GBM scaffold added (`engine/eval/pagebrain_ranker.py`, `scripts/pagebrain_ranker_eval.py`); now consumes candidates+labels and computes top-1/top-k/MRR baselines; ready to plug in feature extraction and LightGBM when richer features are available. Per-tenant model store stub added to PageBrain resolver for future isolation.
    - **Tests:** Unit tests for baseline/eval scaffolding; offline eval tests; load/serve tests for the chosen model implementation.
 
-16e) Tenant-isolated PageBrain models - STATUS: [ ]
+16e) Tenant-isolated PageBrain models - STATUS: [~]
    - **DoD:** Per-tenant model storage and selection: PageBrain can load a global default model and optionally a tenant-specific model trained on that tenant’s logs only. Model selection and retrieval strictly respect tenant boundaries; no cross-tenant data or embeddings are used. Fallback behavior is defined for tenants without a trained model (use global model + heuristics).
+   - **Progress:** Model store stub added with per-tenant overrides; resolver accepts tenant context and records model_id in PageBrain metadata (wiring ready for future model loading).
    - **Tests:** Multi-tenant tests that assert model isolation; tests that verify correct fallback; privacy tests confirming that training data and model artifacts never mix tenant IDs.
 
 ---

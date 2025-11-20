@@ -236,9 +236,29 @@ class Container(containers.DeclarativeContainer):
     # PageBrain v1 (heuristic + retrieval stub) resolver, compatible with IElementResolver
     def _build_model_store(settings_obj):
         try:
-            return PageBrainModelStore(default_model_id=getattr(settings_obj, "PAGEBRAIN_DEFAULT_MODEL", None))
+            default_model_id = getattr(settings_obj, "PAGEBRAIN_DEFAULT_MODEL", None)
+            models_cfg = getattr(settings_obj, "PAGEBRAIN_MODELS", None)
+            tenant_map = getattr(settings_obj, "PAGEBRAIN_TENANT_MODELS", None)
         except Exception:
-            return PageBrainModelStore(default_model_id=None)
+            default_model_id = None
+            models_cfg = None
+            tenant_map = None
+        store = PageBrainModelStore(default_model_id=default_model_id)
+        try:
+            if isinstance(models_cfg, dict):
+                for mid, meta in models_cfg.items():
+                    store.register_model(mid, meta)
+        except Exception:
+            pass
+        if default_model_id:
+            store.register_model(default_model_id, (models_cfg or {}).get(default_model_id) if isinstance(models_cfg, dict) else None)
+        try:
+            if isinstance(tenant_map, dict):
+                for tid, mid in tenant_map.items():
+                    store.set_model(tid, mid)
+        except Exception:
+            pass
+        return store
 
     model_store = providers.Factory(_build_model_store, settings)
     element_resolver = providers.Factory(PageBrainResolver, browser=playwright_browser, model_store=model_store)
