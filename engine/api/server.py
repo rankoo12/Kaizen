@@ -96,6 +96,7 @@ from engine.api.routes.system import router as system_router
 from engine.api.routes.metrics import router as metrics_router
 from engine.api.routes.runs import register_run_routes
 from engine.api.routes.suites import register_suite_routes
+from engine.api.routes.tests import register_test_routes
 from engine.api.routes.queue import register_queue_routes
 from engine.api.routes.artifacts import router as artifacts_router
 from engine.api.routes.admin import router as admin_router
@@ -201,6 +202,7 @@ def create_app(resolver=None) -> FastAPI:
     try:
         register_run_routes(app, orchestrator)
         register_suite_routes(app, orchestrator)
+        register_test_routes(app, orchestrator)
         register_queue_routes(app)
     except NameError:
         # In case a custom resolver was injected without container
