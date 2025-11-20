@@ -447,7 +447,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     and res.signature is None
                 ):
                     res.signature = self._build_signature(actual_resolved)
-                # Emit ActionRun-level log for datasets (PageBrain + Healer summary)
+                # Emit ActionRun log for datasets (PageBrain + Healer summary)
                 try:
                     if self._log:
                         selector = None
@@ -468,25 +468,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
                             "action.run",
                             run_id=getattr(ctx, "run_id", None),
                             index=idx,
-                            tool=tool,
-                            semantic_target=target,
-                            executor=executor_block,
-                            pagebrain=pagebrain_meta,
-                            healer=getattr(self, "_last_heal_extra", None),
-                        )
-                except Exception:
-                    pass
-                # Emit ActionRun-style log for datasets (PageBrain + Healer summary)
-                try:
-                    if self._log:
-                        self._log.info(
-                            "action.run",
-                            run_id=getattr(ctx, "run_id", None),
-                            index=idx,
+                            action_index=idx,
                             tool=tool,
                             ok=bool(getattr(res, "ok", False)),
                             reason=getattr(res, "reason", None),
+                            semantic_target=target,
                             target_signature=getattr(res, "signature", None),
+                            executor=executor_block,
                             pagebrain=pagebrain_meta,
                             healer=getattr(self, "_last_heal_extra", None),
                         )
