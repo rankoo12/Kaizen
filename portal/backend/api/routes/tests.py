@@ -11,11 +11,19 @@ except Exception:
     def parse_steps_text(steps_text: str):
         steps = []
         if isinstance(steps_text, str):
+            index = 0
             for raw in steps_text.splitlines():
                 line = (raw or "").strip()
                 if not line or line.startswith("#"):
                     continue
-                steps.append({"text": line})
+                index += 1
+                steps.append(
+                    {
+                        "id": f"step_{index}",
+                        "index": index,
+                        "text": line,
+                    }
+                )
         return steps
 
 router = APIRouter(prefix="/tests", tags=["tests"])
