@@ -176,9 +176,10 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **Progress:** `PageBrainResolver` (heuristic + profiles/retrieval stub) wraps the resolver, surfaces per-action PageBrain metadata into executor `meta`, and emits `pagebrain.choice` events for dataset export.
    - **Tests:** Deterministic fixtures for DOM snapshots that assert the correct element is ranked first; integration tests for planner → PageBrain → executor path (with healer off and on), using the `StepRun`/`ActionRun` shapes from `CONTRACT.md`.
 
-16c) PageBrain action logging and dataset export - STATUS: [ ]
+16c) PageBrain action logging and dataset export - STATUS: [~]
    - **DoD:** For each actionable step, engine logs a structured record as in `CONTRACT.md` (ActionRun + PageBrain + Healer fields). Scripts export curated JSONL datasets (`pagebrain_train.jsonl`, `pagebrain_dev.jsonl`) with a stable schema for training and evaluation.
-   - **Tests:** Schema unit tests; logging integration tests; dataset export tests that validate shape, required fields, and train/dev split invariants.
+   - **Progress:** Executor emits `action.run` events with tool/ok/reason + PageBrain/Healer metadata; exporters/curators produce `pagebrain_dataset.jsonl` and train/dev splits.
+   - **Tests:** Schema/unit tests for logging/export/curation; integration tests for logging flow into datasets.
 
 16d) PageBrain ML Ranker (GBM-style) - STATUS: [ ]
    - **DoD:** Training pipeline for a gradient-boosted ranking model (e.g. LightGBM/XGBoost) over PageBrain features. Offline eval harness computes top-1 / top-k / MRR on the curated dataset and compares multiple candidate models (including heuristic baseline). The selected model is packaged as a versioned artifact and wired as the primary scorer inside PageBrain, with a config flag to fall back to heuristic-only mode.
