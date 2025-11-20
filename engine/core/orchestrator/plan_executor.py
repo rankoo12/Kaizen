@@ -397,6 +397,20 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         continue
 
                 res = handler.execute(call, ctx)
+                # Emit PageBrain choice event for logging/datasets when available
+                try:
+                    if self._log and pagebrain_meta:
+                        self._log.info(
+                            "pagebrain.choice",
+                            run_id=getattr(ctx, "run_id", None),
+                            tool=tool,
+                            ok=bool(getattr(res, "ok", False)),
+                            reason=getattr(res, "reason", None),
+                            target_signature=getattr(res, "signature", None),
+                            pagebrain=pagebrain_meta,
+                        )
+                except Exception:
+                    pass
                 # Attach signature based on the actual selector used. Handlers may
                 # update call["meta"]["resolved"] when they apply fallbacks.
                 actual_resolved = None
