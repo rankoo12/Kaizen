@@ -166,13 +166,14 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **DoD:** Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
    - **Tests:** Step payload includes tenant label; visual validation via Grafana dashboard.
 
-16b) PageBrain v1 – Heuristic + Retrieval Element Ranking - STATUS: [ ]
+16b) PageBrain v1 – Heuristic + Retrieval Element Ranking - STATUS: [~]
    - **DoD:** First-class `PageBrain` module sits between planner and executor. Given a step, current DOM, and selector profiles, it returns the best selector candidate using:
      - text similarity;
      - tag/role/aria/data-* features;
      - domain-normalized profiles;
      - retrieval scores from embeddings.
      Healer remains as fallback when PageBrain’s choice fails.
+   - **Progress:** `PageBrainResolver` (heuristic + profiles/retrieval stub) wraps the resolver and surfaces per-action PageBrain metadata into executor `meta` for logging/datasets.
    - **Tests:** Deterministic fixtures for DOM snapshots that assert the correct element is ranked first; integration tests for planner → PageBrain → executor path (with healer off and on), using the `StepRun`/`ActionRun` shapes from `CONTRACT.md`.
 
 16c) PageBrain action logging and dataset export - STATUS: [ ]
