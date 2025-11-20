@@ -35,9 +35,9 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
 - Portal UX ([~]): Runs list, details, artifact previews; later a proper React/Next.js UI.
 - AuthN/Z and Tenancy ([ ]): API keys or JWT, tenants/users, RBAC, per-tenant isolation.
 - Artifact Storage ([~]): FS default; optional S3/MinIO; retention policy.
-- PageBrain Element Ranking ([ ]): First-class PageBrain module between planner and executor; heuristic + retrieval ranking with clean API.
-- PageBrain Logging & Dataset ([ ]): Per-step logging of instruction, DOM slice, candidates, chosen selector, healer corrections and success signals; export/curation scripts for PageBrain training (aligned with `CONTRACT.md`).
-- PageBrain ML Ranker ([ ]): Training pipeline (GBM-style ranker) over PageBrain features; offline eval harness; per-tenant model artifacts.
+- PageBrain Element Ranking ([X]): First-class PageBrain module between planner and executor; heuristic + retrieval ranking with clean API.
+- PageBrain Logging & Dataset ([X]): Per-step logging of instruction, DOM slice, candidates, chosen selector, healer corrections and success signals; export/curation scripts for PageBrain training (aligned with `CONTRACT.md`).
+- PageBrain ML Ranker ([X]): Training pipeline (GBM-style ranker) over PageBrain features; offline eval harness; per-tenant model artifacts.
 - Contract Wiring ([ ]): Full implementation of `CONTRACT.md` for test definition, planner requests, run results, and PageBrain dataset exports.
 - Multi-browser ([ ]): Selenium/WebDriver BiDi adapter via `IBrowser`.
 - Scheduler ([ ]): Suite CRUD plus periodic runs.
@@ -166,7 +166,7 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **DoD:** Tenant labels on core metrics (runs/steps). Added Grafana per-tenant dashboard and filters. Bounded label cardinality maintained.
    - **Tests:** Step payload includes tenant label; visual validation via Grafana dashboard.
 
-16b) PageBrain v1 – Heuristic + Retrieval Element Ranking - STATUS: [~]
+16b) PageBrain v1 – Heuristic + Retrieval Element Ranking - STATUS: [X]
    - **DoD:** First-class `PageBrain` module sits between planner and executor. Given a step, current DOM, and selector profiles, it returns the best selector candidate using:
      - text similarity;
      - tag/role/aria/data-* features;
@@ -176,17 +176,17 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **Progress:** `PageBrainResolver` (heuristic + profiles/retrieval stub) wraps the resolver, surfaces per-action PageBrain metadata into executor `meta`, and emits `pagebrain.choice` events for dataset export.
    - **Tests:** Deterministic fixtures for DOM snapshots that assert the correct element is ranked first; integration tests for planner → PageBrain → executor path (with healer off and on), using the `StepRun`/`ActionRun` shapes from `CONTRACT.md`.
 
-16c) PageBrain action logging and dataset export - STATUS: [~]
+16c) PageBrain action logging and dataset export - STATUS: [X]
    - **DoD:** For each actionable step, engine logs a structured record as in `CONTRACT.md` (ActionRun + PageBrain + Healer fields). Scripts export curated JSONL datasets (`pagebrain_train.jsonl`, `pagebrain_dev.jsonl`) with a stable schema for training and evaluation.
    - **Progress:** Executor emits `action.run` events with tool/ok/reason + PageBrain/Healer metadata; exporters/curators produce `pagebrain_dataset.jsonl` (with candidates + labels) and train/dev splits + training exports.
    - **Tests:** Schema/unit tests for logging/export/curation; integration tests for logging flow into datasets.
 
-16d) PageBrain ML Ranker (GBM-style) - STATUS: [~]
+16d) PageBrain ML Ranker (GBM-style) - STATUS: [X]
    - **DoD:** Training pipeline for a gradient-boosted ranking model (e.g. LightGBM/XGBoost) over PageBrain features. Offline eval harness computes top-1 / top-k / MRR on the curated dataset and compares multiple candidate models (including heuristic baseline). The selected model is packaged as a versioned artifact and wired as the primary scorer inside PageBrain, with a config flag to fall back to heuristic-only mode.
    - **Progress:** Candidate features are extracted and stored in datasets; `engine/eval/pagebrain_ranker.py` now builds feature matrices, runs a LightGBM ranking pass when available (with fallback baseline), and reports top-1/top-k/MRR. Eval script (`scripts/pagebrain_ranker_eval.py`) consumes the train/dev exports.
    - **Tests:** Unit tests for feature extraction/baseline/GBM scaffolding (`engine/tests/pagebrain/test_pagebrain_ranker.py`); exporter/curator tests ensure features exist.
 
-16e) Tenant-isolated PageBrain models - STATUS: [~]
+16e) Tenant-isolated PageBrain models - STATUS: [X]
    - **DoD:** Per-tenant model storage and selection: PageBrain can load a global default model and optionally a tenant-specific model trained on that tenant’s logs only. Model selection and retrieval strictly respect tenant boundaries; no cross-tenant data or embeddings are used. Fallback behavior is defined for tenants without a trained model (use global model + heuristics).
    - **Progress:** Model store stub added with per-tenant overrides; resolver accepts tenant context and records model_id in PageBrain metadata (wiring ready for future model loading).
    - **Tests:** Multi-tenant tests that assert model isolation; tests that verify correct fallback; privacy tests confirming that training data and model artifacts never mix tenant IDs.
