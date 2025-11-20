@@ -75,3 +75,37 @@ This guide summarizes the vision, principles, layout, and core contracts for Kai
 
 ## 10) Roadmap & Plan
 - See `docs/KAIZEN_PLAN.md` for the live plan with status, DoD, and tests.
+
+## 11) Planner LLM Offline Training Loop
+
+The planner “Super Bot” relies on a stable QA intent corpus and a clean
+export path. The recommended offline loop is:
+
+1. Run live QA flows through the engine so `run-*.jsonl` logs contain
+   `planner.step` events (this is already wired via `EngineOrchestrator`).
+2. From the repo root, build datasets and training exports:
+
+   ```bash
+   python scripts/planner_offline_training_loop.py
+   ```
+
+   This writes the following under `reports/`:
+   - `planner_qa_dataset.jsonl` (raw examples from logs)
+   - `planner_qa_train.jsonl` / `planner_qa_dev.jsonl` (curated splits)
+   - `planner_qa_train_export.jsonl` / `planner_qa_dev_export.jsonl`
+     (training-ready JSONL with `input`/`output`/`category`).
+
+3. Use the `*_export.jsonl` files with your chosen LLM training stack
+   (for example, fine-tuning a small model). Kaizen does not ship a
+   trainer; this loop is intentionally backend-agnostic.
+4. Point the engine at the tuned model via settings/ENV (for example,
+   by changing the planner model name), then run:
+
+   ```bash
+   python scripts/eval_planner_ablation.py
+   ```
+
+   to compare tuned vs glue/LLM behavior on the same QA corpus.
+
+All steps are deterministic and do not require secrets or external services
+beyond whatever you choose for actual LLM training.
