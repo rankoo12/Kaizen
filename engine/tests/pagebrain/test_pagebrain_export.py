@@ -17,16 +17,24 @@ def test_pagebrain_export_reads_choice_events(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(pagebrain_export_dataset, "LOGS", logs_dir)
     monkeypatch.setattr(pagebrain_export_dataset, "REPORTS", reports_dir)
 
-    # Write a fake pagebrain.choice event
+    # Write a fake action.run event with pagebrain metadata
     logger = RunJsonlLogger(run_id="run-test", logs_dir=logs_dir)
     logger.info(
-        "pagebrain.choice",
+        "action.run",
         run_id="run-test",
         tool="click",
         ok=True,
         reason=None,
         target_signature={"type": "css", "value": "#login"},
-        pagebrain={"candidate_count": 1, "chosen": {"selector": {"type": "css", "value": "#login"}}},
+        executor={"status": "passed"},
+        pagebrain={
+            "candidate_count": 2,
+            "chosen": {"selector": {"type": "css", "value": "#login"}},
+            "candidates": [
+                {"rank": 0, "selector": {"type": "css", "value": "#login"}},
+                {"rank": 1, "selector": {"type": "css", "value": "#foo"}},
+            ],
+        },
     )
     logger.close()
 
@@ -41,5 +49,7 @@ def test_pagebrain_export_reads_choice_events(tmp_path: Path, monkeypatch):
     assert ex["run_id"] == "run-test"
     assert ex["tool"] == "click"
     assert ex["ok"] is True
-    assert ex["pagebrain"]["candidate_count"] == 1
-    assert ex["pagebrain"]["chosen"]["selector"]["value"] == "#login"
+    assert ex["candidate_count"] == 2
+    assert ex["label"] == 0
+    assert len(ex["candidates"]) == 2
+    assert ex["candidates"][0]["selector"]["value"] == "#login"
