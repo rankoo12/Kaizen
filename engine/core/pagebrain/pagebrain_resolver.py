@@ -48,11 +48,14 @@ class PageBrainResolver(ElementResolver):
             )
 
         model_id = None
+        model_info = None
         try:
             if self._model_store is not None:
                 model_id = self._model_store.get_model(self._tenant_id)
+                model_info = self._model_store.get_model_obj(self._tenant_id)
         except Exception:
             model_id = None
+            model_info = None
 
         self._last_pagebrain = {
             "path": "pagebrain_v1",
@@ -60,6 +63,7 @@ class PageBrainResolver(ElementResolver):
             "candidate_count": len(candidates),
             "candidates": ranked,
             "model_id": model_id,
+            "model_info": model_info,
         }
         if chosen and isinstance(chosen, dict):
             self._last_pagebrain["chosen"] = {
