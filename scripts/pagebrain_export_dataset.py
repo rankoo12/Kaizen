@@ -63,6 +63,24 @@ def _norm_selector(sel: dict | None) -> dict | None:
     }
 
 
+def _selector_features(sel: dict) -> dict:
+    val = sel.get("value") or ""
+    val_str = val if isinstance(val, str) else str(val)
+    features = {
+        "selector_len": float(len(val_str)),
+        "has_id": 1.0 if "#" in val_str else 0.0,
+        "has_class": 1.0 if "." in val_str else 0.0,
+        "has_attr": 1.0 if "[" in val_str else 0.0,
+        "num_desc": float(val_str.count(" ")),
+        "visible": 1.0 if sel.get("visible", True) else 0.0,
+        "enabled": 1.0 if sel.get("enabled", True) else 0.0,
+    }
+    sel_type = sel.get("type")
+    features["type_is_css"] = 1.0 if sel_type == "css" else 0.0
+    features["type_is_xpath"] = 1.0 if isinstance(sel_type, str) and "xpath" in sel_type.lower() else 0.0
+    return features
+
+
 def _norm_candidates(pb: dict) -> tuple[list[dict], int]:
     candidates = []
     raw_cands = pb.get("candidates") if isinstance(pb, dict) else None
@@ -79,6 +97,7 @@ def _norm_candidates(pb: dict) -> tuple[list[dict], int]:
                     "rank": c.get("rank"),
                     "visible": sel.get("visible"),
                     "enabled": sel.get("enabled"),
+                    "features": _selector_features(sel),
                 }
             )
     return candidates, len(candidates)
@@ -96,7 +115,13 @@ def main() -> int:
             chosen_sel = _norm_selector((pb.get("chosen") or {}).get("selector"))
             candidates, cand_count = _norm_candidates(pb)
             if not candidates and chosen_sel:
-                candidates = [{"selector": chosen_sel, "rank": 0, "visible": chosen_sel.get("visible"), "enabled": chosen_sel.get("enabled")}]
+                candidates = [{
+                    "selector": chosen_sel,
+                    "rank": 0,
+                    "visible": chosen_sel.get("visible"),
+                    "enabled": chosen_sel.get("enabled"),
+                    "features": _selector_features(chosen_sel),
+                }]
                 cand_count = 1
             label_idx = None
             if chosen_sel and candidates:

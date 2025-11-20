@@ -52,4 +52,7 @@ def test_pagebrain_export_reads_choice_events(tmp_path: Path, monkeypatch):
     assert ex["candidate_count"] == 2
     assert ex["label"] == 0
     assert len(ex["candidates"]) == 2
-    assert ex["candidates"][0]["selector"]["value"] == "#login"
+    cand0 = ex["candidates"][0]
+    assert cand0["selector"]["value"] == "#login"
+    assert "features" in cand0
+    assert cand0["features"]["has_id"] == 1.0
