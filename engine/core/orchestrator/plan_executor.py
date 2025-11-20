@@ -429,6 +429,35 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     and res.signature is None
                 ):
                     res.signature = self._build_signature(actual_resolved)
+                # Emit ActionRun-level log for datasets (PageBrain + Healer summary)
+                try:
+                    if self._log:
+                        selector = None
+                        if isinstance(actual_resolved, dict):
+                            selector = {
+                                "type": actual_resolved.get("type"),
+                                "value": actual_resolved.get("value"),
+                                "visible": actual_resolved.get("visible"),
+                                "enabled": actual_resolved.get("enabled"),
+                            }
+                        executor_block = {
+                            "status": "passed" if getattr(res, "ok", False) else "failed",
+                            "reason": getattr(res, "reason", None),
+                            "selector": selector,
+                            "signature": getattr(res, "signature", None),
+                        }
+                        self._log.info(
+                            "action.run",
+                            run_id=getattr(ctx, "run_id", None),
+                            index=idx,
+                            tool=tool,
+                            semantic_target=target,
+                            executor=executor_block,
+                            pagebrain=pagebrain_meta,
+                            healer=getattr(self, "_last_heal_extra", None),
+                        )
+                except Exception:
+                    pass
                 # Emit ActionRun-style log for datasets (PageBrain + Healer summary)
                 try:
                     if self._log:
