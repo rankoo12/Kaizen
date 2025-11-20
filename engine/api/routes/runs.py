@@ -1,8 +1,11 @@
 from typing import Any, Dict, List
+from pathlib import Path
+import json
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
 import engine.core.reporting.reporter as reporter_mod
+from engine.core.config.settings import settings as _settings
 
 
 _SEEN_RUN_IDS: set[str] = set()
@@ -17,6 +20,44 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
     """
 
     router = APIRouter(prefix="/api", tags=["runs"])
+
+    def _normalize_action_run(rec: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize raw action.run log entries into ActionRun-like blocks.
+
+        This keeps the shape close to CONTRACT.md without requiring callers to
+        understand the full log schema.
+        """
+        executor = rec.get("executor") or {}
+        exec_status = executor.get("status")
+        exec_reason = executor.get("reason")
+        selector = executor.get("selector")
+        signature = executor.get("signature")
+        action_index = rec.get("action_index")
+        if not isinstance(action_index, int):
+            try:
+                action_index = int(rec.get("index"))
+            except Exception:
+                action_index = None
+        out: Dict[str, Any] = {
+            "ts": rec.get("ts"),
+            "action_index": action_index,
+            "tool": rec.get("tool"),
+            "semantic_target": rec.get("semantic_target"),
+            "ok": bool(rec.get("ok", False)),
+            "reason": rec.get("reason"),
+            "target_signature": rec.get("target_signature"),
+            "pagebrain": rec.get("pagebrain") or {},
+            "healer": rec.get("healer") or {},
+        }
+        out["executor"] = {
+            "status": exec_status,
+            # Expose reason as both error and reason for contract-style consumers
+            "error": exec_reason,
+            "reason": exec_reason,
+            "selector": selector,
+            "signature": signature,
+        }
+        return out
 
     @router.get("/runs")
     async def list_runs(
@@ -211,6 +252,41 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
             pass
 
         return {"run_id": run_id, "status": "unknown", "stats": {}}
+
+    @router.get("/runs/{run_id}/details")
+    async def get_run_details(run_id: str):
+        """Return enriched run details plus ActionRun-style timeline.
+
+        This endpoint is intended for portal/contract consumers that need more
+        than aggregate stats, but do not want to parse JSONL logs directly.
+        """
+        base = await get_run(run_id)
+
+        # Best-effort extraction of ActionRun-style entries from per-run logs
+        actions: List[Dict[str, Any]] = []
+        try:
+            log_dir = getattr(_settings, "LOGS_DIR", None)
+            if log_dir is not None:
+                path = Path(log_dir) / f"run-{run_id}.jsonl"
+                if path.exists():
+                    with path.open("r", encoding="utf-8") as fp:
+                        for line in fp:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                rec = json.loads(line)
+                            except Exception:
+                                continue
+                            if not isinstance(rec, dict):
+                                continue
+                            if rec.get("event") != "action.run":
+                                continue
+                            actions.append(_normalize_action_run(rec))
+        except Exception:
+            actions = []
+
+        return {"run": base, "actions": actions}
 
     @router.post("/runs/{run_id}/finish")
     async def finish_run(run_id: str, body: Dict[str, Any]):
