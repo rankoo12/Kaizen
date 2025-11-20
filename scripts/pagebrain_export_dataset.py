@@ -130,6 +130,7 @@ def main() -> int:
                     if sel.get("type") == chosen_sel.get("type") and sel.get("value") == chosen_sel.get("value"):
                         label_idx = i
                         break
+            label_source = pb.get("label_source") or rec.get("pagebrain", {}).get("label_source")
             example = {
                 "example_id": f"{run_id}-{total}",
                 "run_id": run_id,
@@ -141,6 +142,7 @@ def main() -> int:
                 "candidates": candidates,
                 "label": label_idx,
                 "candidate_count": cand_count,
+                "label_source": label_source,
             }
             fp.write(json.dumps(example, ensure_ascii=False) + "\n")
             total += 1

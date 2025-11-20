@@ -56,3 +56,4 @@ def test_pagebrain_export_reads_choice_events(tmp_path: Path, monkeypatch):
     assert cand0["selector"]["value"] == "#login"
     assert "features" in cand0
     assert cand0["features"]["has_id"] == 1.0
+    assert ex["label_source"] is None
