@@ -756,6 +756,25 @@ class DeterministicPlanExecutor(IPlanExecutor):
         # Choose path
         path = getattr(self._settings, "HEALER_PATH", "deterministic")
         healed = None
+        # PageBrain candidate fallback before healer strategies
+        pb_candidates = []
+        try:
+            pb_meta = (call.get("meta") or {}).get("pagebrain") or {}
+            pb_candidates = pb_meta.get("candidates") or []
+        except Exception:
+            pb_candidates = []
+        for cand in pb_candidates:
+            sel = cand.get("selector") if isinstance(cand, dict) else None
+            if not isinstance(sel, dict):
+                continue
+            meta = dict(call.get("meta") or {})
+            meta["resolved"] = sel
+            call["meta"] = meta
+            res = handler.execute(call, ctx)
+            if isinstance(res, StepResult) and res.ok:
+                res.signature = res.signature or self._build_signature(sel)
+                self._last_heal_extra = {"healed": True, "healer": "pagebrain_candidate"}
+                return res
         # OTel Phase 1: trace heal attempts
         _span_ctx = None
         try:
