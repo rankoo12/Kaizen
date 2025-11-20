@@ -3,20 +3,29 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from engine.core.resolving.element_resolver import ElementResolver
+from engine.core.pagebrain.model_store import PageBrainModelStore
 
 
 class PageBrainResolver(ElementResolver):
     """PageBrain v1: heuristic + profiles + retrieval stub wrapping ElementResolver.
 
-    For now this wraps the existing ElementResolver and captures basic metadata
-    about the chosen selector and the small candidate set so downstream logging
-    (StepRun/ActionRun) can include a PageBrain block. Future iterations can
-    enrich scoring with retrieval and ML.
+    Captures basic metadata about chosen selector/candidates and optionally
+    records which PageBrain model was selected for the current tenant.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        model_store: PageBrainModelStore | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._last_pagebrain: Dict[str, Any] = {}
+        self._tenant_id: str | None = None
+        self._model_store = model_store
+
+    def set_tenant(self, tenant_id: str | None) -> None:
+        self._tenant_id = tenant_id
 
     def find(self, target: dict) -> list[Any]:
         candidates = super().find(target) or []
@@ -38,11 +47,19 @@ class PageBrainResolver(ElementResolver):
                 }
             )
 
+        model_id = None
+        try:
+            if self._model_store is not None:
+                model_id = self._model_store.get_model(self._tenant_id)
+        except Exception:
+            model_id = None
+
         self._last_pagebrain = {
             "path": "pagebrain_v1",
             "reason": "heuristics+profiles+retrieval_stub",
             "candidate_count": len(candidates),
             "candidates": ranked,
+            "model_id": model_id,
         }
         if chosen and isinstance(chosen, dict):
             self._last_pagebrain["chosen"] = {
