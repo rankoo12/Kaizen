@@ -183,7 +183,7 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
 
 16d) PageBrain ML Ranker (GBM-style) - STATUS: [ ]
    - **DoD:** Training pipeline for a gradient-boosted ranking model (e.g. LightGBM/XGBoost) over PageBrain features. Offline eval harness computes top-1 / top-k / MRR on the curated dataset and compares multiple candidate models (including heuristic baseline). The selected model is packaged as a versioned artifact and wired as the primary scorer inside PageBrain, with a config flag to fall back to heuristic-only mode.
-   - **Progress:** Baseline GBM scaffold added (`engine/eval/pagebrain_ranker.py`, `scripts/pagebrain_ranker_eval.py`); now consumes candidates+labels and computes top-1/top-k/MRR baselines; ready to plug in feature extraction and LightGBM when richer features are available.
+   - **Progress:** Baseline GBM scaffold added (`engine/eval/pagebrain_ranker.py`, `scripts/pagebrain_ranker_eval.py`); now consumes candidates+labels and computes top-1/top-k/MRR baselines; ready to plug in feature extraction and LightGBM when richer features are available. Per-tenant model store stub added to PageBrain resolver for future isolation.
    - **Tests:** Unit tests for baseline/eval scaffolding; offline eval tests; load/serve tests for the chosen model implementation.
 
 16e) Tenant-isolated PageBrain models - STATUS: [ ]
