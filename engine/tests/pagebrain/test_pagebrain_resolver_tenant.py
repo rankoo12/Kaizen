@@ -23,4 +23,6 @@ def test_pagebrain_resolver_records_tenant_model():
     assert isinstance(out, list) and out
     meta = resolver.get_last_pagebrain()
     assert meta["model_id"] == "tenant-model"
-    assert meta["model_info"] == {"path": "tenant.pb"}
+    assert isinstance(meta["model_info"], dict)
+    assert meta["model_info"]["id"] == "tenant-model"
+    assert meta["model_info"]["loaded"] is True
