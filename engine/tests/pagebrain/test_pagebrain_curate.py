@@ -16,17 +16,20 @@ def test_pagebrain_curate_filters_and_splits(tmp_path: Path, monkeypatch):
         {
             "example_id": "ok-1",
             "ok": True,
-            "pagebrain": {"chosen": {"selector": {"type": "css", "value": "#a"}}},
+            "label": 0,
+            "candidates": [{"selector": {"type": "css", "value": "#a"}}],
         },
         {
             "example_id": "bad-1",
             "ok": False,
-            "pagebrain": {"chosen": {"selector": {"type": "css", "value": "#b"}}},
+            "label": 0,
+            "candidates": [{"selector": {"type": "css", "value": "#b"}}],
         },
         {
             "example_id": "bad-2",
             "ok": True,
-            "pagebrain": {"chosen": {"selector": {"type": None, "value": ""}}},
+            "label": None,
+            "candidates": [{"selector": {"type": "css", "value": "#c"}}],
         },
     ]
     with src.open("w", encoding="utf-8") as fp:

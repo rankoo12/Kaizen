@@ -9,7 +9,10 @@ Writes:
   reports/pagebrain_dev.jsonl
 
 Rules:
-- keep examples where ok is True and pagebrain.chosen selector exists
+- keep examples where:
+  - ok is True
+  - label (correct candidate index) is known
+  - candidates list is non-empty
 - simple dev split: every 5th example goes to dev
 """
 
@@ -54,12 +57,11 @@ def main() -> int:
     for ex in raw:
         if not ex.get("ok"):
             continue
-        pb = ex.get("pagebrain") or {}
-        chosen = pb.get("chosen") if isinstance(pb, dict) else None
-        if not (isinstance(chosen, dict)):
+        label = ex.get("label")
+        if label is None or not isinstance(label, int):
             continue
-        sel = chosen.get("selector") if isinstance(chosen, dict) else None
-        if not (isinstance(sel, dict) and sel.get("type") and sel.get("value")):
+        candidates = ex.get("candidates") or []
+        if not isinstance(candidates, list) or not candidates:
             continue
         curated.append(ex)
 

@@ -178,12 +178,12 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
 
 16c) PageBrain action logging and dataset export - STATUS: [~]
    - **DoD:** For each actionable step, engine logs a structured record as in `CONTRACT.md` (ActionRun + PageBrain + Healer fields). Scripts export curated JSONL datasets (`pagebrain_train.jsonl`, `pagebrain_dev.jsonl`) with a stable schema for training and evaluation.
-   - **Progress:** Executor emits `action.run` events with tool/ok/reason + PageBrain/Healer metadata; exporters/curators produce `pagebrain_dataset.jsonl` and train/dev splits.
+   - **Progress:** Executor emits `action.run` events with tool/ok/reason + PageBrain/Healer metadata; exporters/curators produce `pagebrain_dataset.jsonl` (with candidates + labels) and train/dev splits + training exports.
    - **Tests:** Schema/unit tests for logging/export/curation; integration tests for logging flow into datasets.
 
 16d) PageBrain ML Ranker (GBM-style) - STATUS: [ ]
    - **DoD:** Training pipeline for a gradient-boosted ranking model (e.g. LightGBM/XGBoost) over PageBrain features. Offline eval harness computes top-1 / top-k / MRR on the curated dataset and compares multiple candidate models (including heuristic baseline). The selected model is packaged as a versioned artifact and wired as the primary scorer inside PageBrain, with a config flag to fall back to heuristic-only mode.
-   - **Progress:** Baseline GBM scaffold added (`engine/eval/pagebrain_ranker.py`, `scripts/pagebrain_ranker_eval.py`); currently computes baseline metrics over curated exports and is ready to plug in feature extraction and LightGBM when features and candidates are available.
+   - **Progress:** Baseline GBM scaffold added (`engine/eval/pagebrain_ranker.py`, `scripts/pagebrain_ranker_eval.py`); now consumes candidates+labels and computes top-1/top-k/MRR baselines; ready to plug in feature extraction and LightGBM when richer features are available.
    - **Tests:** Unit tests for baseline/eval scaffolding; offline eval tests; load/serve tests for the chosen model implementation.
 
 16e) Tenant-isolated PageBrain models - STATUS: [ ]
