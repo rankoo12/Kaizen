@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import os
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 # Lazy/safe import of engine parser (portal runs as a separate module)
 try:
@@ -30,11 +30,70 @@ router = APIRouter(prefix="/tests", tags=["tests"])
 
 
 @router.post("", status_code=201)
-def create_test():
-    return {"testId": "T-0001"}
+def create_test(request: Request, body: Dict[str, Any] | None = None):
+    """Create a CONTRACT-style Test via Engine API."""
+    body = body or {}
+    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    headers: Dict[str, str] = {}
+    try:
+        if request.headers.get("X-API-Key"):
+            headers["X-API-Key"] = request.headers["X-API-Key"]
+    except Exception:
+        pass
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.post(f"{engine_base}/tests", json=body, headers=headers or None)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal create test error: {e!s}")
+    test_id = data.get("test_id") or body.get("id")
+    return {"testId": test_id, "engine": data}
 
 
 ENGINE_API_BASE = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+
+
+@router.get("/{test_id}")
+def get_test(request: Request, test_id: str):
+    """Fetch a CONTRACT-style Test from Engine API."""
+    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    headers: Dict[str, str] = {}
+    try:
+        if request.headers.get("X-API-Key"):
+            headers["X-API-Key"] = request.headers["X-API-Key"]
+    except Exception:
+        pass
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.get(f"{engine_base}/tests/{test_id}", headers=headers or None)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal get test error: {e!s}")
+    return data
+
+
+@router.post("/{test_id}/runs", status_code=201)
+def run_test(request: Request, test_id: str, body: Dict[str, Any] | None = None):
+    """Start a run for a stored Test via Engine API."""
+    body = body or {}
+    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    headers: Dict[str, str] = {}
+    try:
+        if request.headers.get("X-API-Key"):
+            headers["X-API-Key"] = request.headers["X-API-Key"]
+    except Exception:
+        pass
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.post(f"{engine_base}/tests/{test_id}/runs", json=body, headers=headers or None)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal run test error: {e!s}")
+    run_id = data.get("run_id")
+    return {"runId": run_id, "engine": data}
 
 
 @router.post("/nl-run", status_code=201)
