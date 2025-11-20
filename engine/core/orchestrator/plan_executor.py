@@ -68,6 +68,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._last_target: Any | None = None
         self._profile_hits = 0
         self._profile_misses = 0
+        self._last_heal_extra = None
 
         results: List[StepResult] = []
         for idx, call in enumerate(plan):
@@ -396,6 +397,8 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         self._emit_metric(tool, res)
                         continue
 
+                # reset per-action heal metadata
+                self._last_heal_extra = None
                 res = handler.execute(call, ctx)
                 # Emit PageBrain choice event for logging/datasets when available
                 try:
@@ -426,6 +429,22 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     and res.signature is None
                 ):
                     res.signature = self._build_signature(actual_resolved)
+                # Emit ActionRun-style log for datasets (PageBrain + Healer summary)
+                try:
+                    if self._log:
+                        self._log.info(
+                            "action.run",
+                            run_id=getattr(ctx, "run_id", None),
+                            index=idx,
+                            tool=tool,
+                            ok=bool(getattr(res, "ok", False)),
+                            reason=getattr(res, "reason", None),
+                            target_signature=getattr(res, "signature", None),
+                            pagebrain=pagebrain_meta,
+                            healer=getattr(self, "_last_heal_extra", None),
+                        )
+                except Exception:
+                    pass
                 # If a click failed, attempt healer recovery as a secondary path
                 if tool in {"click", "doubleClick", "rightClick"} and isinstance(res, StepResult) and not res.ok:
                     try:
