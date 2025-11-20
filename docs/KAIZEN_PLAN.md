@@ -173,7 +173,7 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
      - domain-normalized profiles;
      - retrieval scores from embeddings.
      Healer remains as fallback when PageBrain’s choice fails.
-   - **Progress:** `PageBrainResolver` (heuristic + profiles/retrieval stub) wraps the resolver and surfaces per-action PageBrain metadata into executor `meta` for logging/datasets.
+   - **Progress:** `PageBrainResolver` (heuristic + profiles/retrieval stub) wraps the resolver, surfaces per-action PageBrain metadata into executor `meta`, and emits `pagebrain.choice` events for dataset export.
    - **Tests:** Deterministic fixtures for DOM snapshots that assert the correct element is ranked first; integration tests for planner → PageBrain → executor path (with healer off and on), using the `StepRun`/`ActionRun` shapes from `CONTRACT.md`.
 
 16c) PageBrain action logging and dataset export - STATUS: [ ]
