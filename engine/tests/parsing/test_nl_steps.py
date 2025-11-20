@@ -10,4 +10,12 @@ click Login
 press Enter
 """
     steps = parse_steps_text(text)
-    assert steps == [{"text": "click Login"}, {"text": "type hello"}, {"text": "press Enter"}]
+    # Preserve original text order
+    assert [s.get("text") for s in steps] == [
+        "click Login",
+        "type hello",
+        "press Enter",
+    ]
+    # Ensure contract-style ids and indices are present and stable
+    assert [s.get("index") for s in steps] == [1, 2, 3]
+    assert [s.get("id") for s in steps] == ["step_1", "step_2", "step_3"]
