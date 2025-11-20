@@ -6,19 +6,39 @@ from engine.eval.pagebrain_ranker import evaluate_baseline, train_and_eval
 
 
 def test_evaluate_baseline_counts_correct():
+    def _cand(value, rank):
+        return {
+            "rank": rank,
+            "selector": {"type": "css", "value": value},
+            "visible": True,
+            "enabled": True,
+            "features": {
+                "rank": rank,
+                "selector_len": float(len(value)),
+                "has_id": 1.0 if "#" in value else 0.0,
+                "has_class": 1.0 if "." in value else 0.0,
+                "has_attr": 0.0,
+                "num_desc": 0.0,
+                "visible": 1.0,
+                "enabled": 1.0,
+                "type_is_css": 1.0,
+                "type_is_xpath": 0.0,
+            },
+        }
+
     examples = [
         {
             "label": 0,
             "candidates": [
-                {"rank": 0, "selector": {"type": "css", "value": "#a"}, "visible": True, "enabled": True},
-                {"rank": 1, "selector": {"type": "css", "value": "#b"}, "visible": True, "enabled": True},
+                _cand("#a", 0),
+                _cand("#b", 1),
             ],
         },
         {
             "label": 1,
             "candidates": [
-                {"rank": 0, "selector": {"type": "css", "value": "#c"}, "visible": True, "enabled": True},
-                {"rank": 1, "selector": {"type": "css", "value": "#d"}, "visible": True, "enabled": True},
+                _cand("#c", 0),
+                _cand("#d", 1),
             ],
         },
     ]
