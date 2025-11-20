@@ -140,6 +140,24 @@ def get_run(request: Request, job_id: str):
         raise HTTPException(status_code=500, detail=f"portal run status error: {e!s}")
 
 
+@router.get("/{run_id}/details")
+def get_run_details(request: Request, run_id: str):
+    """Proxy detailed run view (including action timeline) from Engine API."""
+    try:
+        headers: Dict[str, str] = {}
+        try:
+            if request.headers.get("X-API-Key"):
+                headers["X-API-Key"] = request.headers["X-API-Key"]
+        except Exception:
+            pass
+        with httpx.Client(timeout=10.0) as client:
+            r = _client_get(client, f"{ENGINE_API_BASE}/runs/{run_id}/details", headers=headers or None)
+            r.raise_for_status()
+            return r.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portal run details error: {e!s}")
+
+
 @router.get("/{run_id}/artifacts")
 def get_run_artifacts(request: Request, run_id: str):
     """Proxy artifacts list from Engine API.
