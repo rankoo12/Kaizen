@@ -181,10 +181,10 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **Progress:** Executor emits `action.run` events with tool/ok/reason + PageBrain/Healer metadata; exporters/curators produce `pagebrain_dataset.jsonl` (with candidates + labels) and train/dev splits + training exports.
    - **Tests:** Schema/unit tests for logging/export/curation; integration tests for logging flow into datasets.
 
-16d) PageBrain ML Ranker (GBM-style) - STATUS: [ ]
+16d) PageBrain ML Ranker (GBM-style) - STATUS: [~]
    - **DoD:** Training pipeline for a gradient-boosted ranking model (e.g. LightGBM/XGBoost) over PageBrain features. Offline eval harness computes top-1 / top-k / MRR on the curated dataset and compares multiple candidate models (including heuristic baseline). The selected model is packaged as a versioned artifact and wired as the primary scorer inside PageBrain, with a config flag to fall back to heuristic-only mode.
-   - **Progress:** Baseline GBM scaffold added (`engine/eval/pagebrain_ranker.py`, `scripts/pagebrain_ranker_eval.py`); now consumes candidates+labels and computes top-1/top-k/MRR baselines; ready to plug in feature extraction and LightGBM when richer features are available. Per-tenant model store stub added to PageBrain resolver for future isolation.
-   - **Tests:** Unit tests for baseline/eval scaffolding; offline eval tests; load/serve tests for the chosen model implementation.
+   - **Progress:** Candidate features are extracted and stored in datasets; `engine/eval/pagebrain_ranker.py` now builds feature matrices, runs a LightGBM ranking pass when available (with fallback baseline), and reports top-1/top-k/MRR. Eval script (`scripts/pagebrain_ranker_eval.py`) consumes the train/dev exports.
+   - **Tests:** Unit tests for feature extraction/baseline/GBM scaffolding (`engine/tests/pagebrain/test_pagebrain_ranker.py`); exporter/curator tests ensure features exist.
 
 16e) Tenant-isolated PageBrain models - STATUS: [~]
    - **DoD:** Per-tenant model storage and selection: PageBrain can load a global default model and optionally a tenant-specific model trained on that tenant’s logs only. Model selection and retrieval strictly respect tenant boundaries; no cross-tenant data or embeddings are used. Fallback behavior is defined for tenants without a trained model (use global model + heuristics).
