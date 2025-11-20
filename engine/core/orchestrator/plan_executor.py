@@ -170,6 +170,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     continue
 
                 resolved = None
+                pagebrain_meta = None
                 if isinstance(target, dict) and self._resolver is not None:
                     # Prefer a 'find' method if available (duck-typing), else fallback
                     finder: Callable[[dict], Any] | None = getattr(
@@ -213,6 +214,13 @@ class DeterministicPlanExecutor(IPlanExecutor):
                                 self._emit_metric(tool, res)
                                 continue
                             resolved = candidates[0]
+                            # Capture PageBrain metadata when provided by resolver
+                            try:
+                                pb_get = getattr(self._resolver, "get_last_pagebrain", None)
+                                if callable(pb_get):
+                                    pagebrain_meta = pb_get()
+                            except Exception:
+                                pagebrain_meta = None
                         else:
                             resolved_candidate, timed_out = self._poll_resolve(
                                 finder, target, timeout_ms
@@ -238,6 +246,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
                                 self._emit_metric(tool, res)
                                 continue
                             resolved = resolved_candidate
+                            try:
+                                pb_get = getattr(self._resolver, "get_last_pagebrain", None)
+                                if callable(pb_get):
+                                    pagebrain_meta = pb_get()
+                            except Exception:
+                                pagebrain_meta = None
                     else:
                         # No live snapshot available for resolve(); require a finder
                         healed = self._try_heal(
@@ -348,6 +362,8 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     meta["resolved"] = resolved
                     if tool == "dragAndDrop" and dest_resolved is not None:
                         meta["resolved_to"] = dest_resolved
+                    if pagebrain_meta:
+                        meta["pagebrain"] = pagebrain_meta
                     call["meta"] = meta
 
                 # Click safety policy
