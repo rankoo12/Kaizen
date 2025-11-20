@@ -69,6 +69,24 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._profile_hits = 0
         self._profile_misses = 0
         self._last_heal_extra = None
+        # Resolve tenant for this run once (used for PageBrain model selection)
+        try:
+            if getattr(self, "_run_tenant_id", None) is None and getattr(self, "_storage", None) is not None:
+                get_run = getattr(self._storage, "get_run", None)
+                if callable(get_run):
+                    row = get_run(str(ctx.run_id))
+                    if isinstance(row, dict):
+                        self._run_tenant_id = row.get("tenant_id")
+        except Exception:
+            self._run_tenant_id = None
+        # Inform resolver of tenant when supported
+        try:
+            if self._resolver is not None:
+                setter = getattr(self._resolver, "set_tenant", None)
+                if callable(setter):
+                    setter(self._run_tenant_id)
+        except Exception:
+            pass
 
         results: List[StepResult] = []
         for idx, call in enumerate(plan):

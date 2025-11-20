@@ -1,6 +1,7 @@
 from dependency_injector import containers, providers
 from engine.core.config.settings import Settings
 from engine.core.pagebrain.pagebrain_resolver import PageBrainResolver
+from engine.core.pagebrain.model_store import PageBrainModelStore
 from engine.core.orchestrator.snapshot_runner import SnapshotRunner
 from engine.core.orchestrator.types import IPlanner, IResolveSnapshot
 from engine.core.browser.playwright_driver import PlaywrightBrowser
@@ -233,7 +234,14 @@ class Container(containers.DeclarativeContainer):
 
     # Element resolver with access to browser (for lightweight live checks)
     # PageBrain v1 (heuristic + retrieval stub) resolver, compatible with IElementResolver
-    element_resolver = providers.Factory(PageBrainResolver, browser=playwright_browser)
+    def _build_model_store(settings_obj):
+        try:
+            return PageBrainModelStore(default_model_id=getattr(settings_obj, "PAGEBRAIN_DEFAULT_MODEL", None))
+        except Exception:
+            return PageBrainModelStore(default_model_id=None)
+
+    model_store = providers.Factory(_build_model_store, settings)
+    element_resolver = providers.Factory(PageBrainResolver, browser=playwright_browser, model_store=model_store)
 
     # Concrete action handlers using shared Playwright browser
     open_handler = providers.Factory(OpenHandler, browser=playwright_browser)

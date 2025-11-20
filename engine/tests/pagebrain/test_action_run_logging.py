@@ -6,12 +6,13 @@ from pathlib import Path
 from engine.core.commands.action_handler import IActionHandler, StepResult, ExecCtx
 from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.pagebrain.pagebrain_resolver import PageBrainResolver
+from engine.core.pagebrain.model_store import PageBrainModelStore
 from engine.core.logging.log import RunJsonlLogger
 
 
 class FakeResolver(PageBrainResolver):
     def __init__(self):
-        super().__init__(browser=None)
+        super().__init__(browser=None, model_store=PageBrainModelStore(default_model_id="global"))
 
     def find(self, target: dict):
         return [
