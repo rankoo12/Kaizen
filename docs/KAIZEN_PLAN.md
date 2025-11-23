@@ -79,7 +79,7 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
    - **DoD:** Multiple runners process jobs asynchronously (configurable via `RUNNER_CONCURRENCY`); queue supports `SKIP LOCKED` multi-claim; stale running jobs are requeued based on a lease timeout; metrics/OTel instrumentation reflect run counts and durations. Runner failures do not block the queue.
    - **Tests:** Integration sim multi-claim (`engine/tests/integration/test_pg_queue_multi_claim.py`); queue lease/timeout requeue (`engine/tests/integration/test_queue_lease_requeue_pg.py`); runner path defaults covered by live runner tests.
 
-5) Portal basics: Runs list plus artifacts preview - STATUS: [~]
+5) Portal basics: Runs list plus artifacts preview - STATUS: [X]
    - **DoD:** Shows latest runs, details, artifacts (log/screenshot links); NL run remains usable.
    - **Tests:** Route tests for proxies; CI sanity asserts non-empty list after sample run.
 
@@ -107,7 +107,7 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
     - **DoD:** Paginated runs list, filters, details, artifact previews; NL run remains usable.
     - **Tests:** FastAPI route tests; snapshot/e2e on basic flows.
 
-10b) Contract wiring in Portal - STATUS: [ ]
+10b) Contract wiring in Portal - STATUS: [~]
     - **DoD:** Portal uses `CONTRACT.md` structures for:
       - test creation/editing (step-based English model);
       - run detail views (step-level status, screenshots, basic PageBrain info);

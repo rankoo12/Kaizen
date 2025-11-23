@@ -33,6 +33,13 @@ router = APIRouter(prefix="/tests", tags=["tests"])
 def create_test(request: Request, body: Dict[str, Any] | None = None):
     """Create a CONTRACT-style Test via Engine API."""
     body = body or {}
+    # Allow a simpler stepsText payload from UI and normalize via parse_steps_text
+    engine_payload: Dict[str, Any] = dict(body)
+    if not engine_payload.get("steps"):
+        steps_text = engine_payload.get("stepsText")
+        if isinstance(steps_text, str):
+            engine_payload["steps"] = parse_steps_text(steps_text)
+            engine_payload.pop("stepsText", None)
     engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
     headers: Dict[str, str] = {}
     try:
@@ -42,7 +49,7 @@ def create_test(request: Request, body: Dict[str, Any] | None = None):
         pass
     try:
         with httpx.Client(timeout=10.0) as client:
-            r = client.post(f"{engine_base}/tests", json=body, headers=headers or None)
+            r = client.post(f"{engine_base}/tests", json=engine_payload, headers=headers or None)
             r.raise_for_status()
             data = r.json()
     except Exception as e:

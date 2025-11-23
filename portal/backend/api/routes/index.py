@@ -30,6 +30,14 @@ def index():
       <div class=\"row\">\n        <input id=\"url\" placeholder=\"https://example.com or data:...\" style=\"width: 100%\"/>\n      </div>
       <div class=\"row\">\n        <textarea id=\"stepsText\" placeholder=\"One step per line, e.g.\\nclick Login\\ntype hello\\npress Enter\"></textarea>\n      </div>
       <div class=\"row\">\n        <button id=\"nlRunBtn\">Run NL Test</button>\n      </div>
+      <hr />
+      <h2>Contract Tests (CONTRACT.md)</h2>
+      <div class=\"row\">\n        <input id=\"ctTestId\" placeholder=\"test id (e.g. test_login)\" style=\"width: 100%\"/>\n      </div>
+      <div class=\"row\">\n        <input id=\"ctName\" placeholder=\"Test name\" style=\"width: 100%\"/>\n      </div>
+      <div class=\"row\">\n        <input id=\"ctAppUrl\" placeholder=\"app_base_url (e.g. https://app.example.com)\" style=\"width: 100%\"/>\n      </div>
+      <div class=\"row\">\n        <textarea id=\"ctStepsText\" placeholder=\"One step per line, e.g.\\nOpen the login page.\\nClick Login.\"></textarea>\n      </div>
+      <div class=\"row\">\n        <button id=\"ctCreateBtn\">Create Contract Test</button>\n        <button id=\"ctLoadBtn\">Load Test</button>\n        <button id=\"ctRunBtn\">Run Contract Test</button>\n      </div>
+      <div class=\"row\">\n        <h3>Contract Test JSON</h3>\n        <pre id=\"ctTestJson\"></pre>\n      </div>
       <div class=\"row\">\n        <h3>Recent Runs</h3>\n        <button id=\"refreshRuns\">Refresh Runs</button>\n        <pre id=\"runs\"></pre>\n      </div>
       <div class=\"row\">\n        <h3>Artifacts</h3>\n        <div id=\"artifacts\"></div>\n        <div id=\"shot\"></div>\n      </div>
       <div class="row">
@@ -54,6 +62,12 @@ def index():
         <h3>Stats</h3>
         <pre id="stats"></pre>
       </div>
+      <div class="row">
+        <h3>Run Details (contract view)</h3>
+        <input id="runDetailsId" placeholder="run id" style="width: 60%" />
+        <button id="runDetailsBtn">Load Details</button>
+        <pre id="runDetails"></pre>
+      </div>
 
       <script>
         const runBtn = document.getElementById('runBtn');
@@ -69,6 +83,17 @@ def index():
         const artifactsEl = document.getElementById('artifacts');
         const shotEl = document.getElementById('shot');
         const refreshRunsBtn = document.getElementById('refreshRuns');
+        const ctTestIdEl = document.getElementById('ctTestId');
+        const ctNameEl = document.getElementById('ctName');
+        const ctAppUrlEl = document.getElementById('ctAppUrl');
+        const ctStepsTextEl = document.getElementById('ctStepsText');
+        const ctCreateBtn = document.getElementById('ctCreateBtn');
+        const ctLoadBtn = document.getElementById('ctLoadBtn');
+        const ctRunBtn = document.getElementById('ctRunBtn');
+        const ctTestJsonEl = document.getElementById('ctTestJson');
+        const runDetailsIdEl = document.getElementById('runDetailsId');
+        const runDetailsBtn = document.getElementById('runDetailsBtn');
+        const runDetailsEl = document.getElementById('runDetails');
 
         let jobId = null;
 
@@ -81,6 +106,73 @@ def index():
           const r = await fetch(url);
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return await r.json();
+        }
+
+        async function createContractTest() {
+          if (!ctTestIdEl) return;
+          const id = (ctTestIdEl.value || '').trim() || `test_${Date.now()}`;
+          const name = (ctNameEl && ctNameEl.value.trim()) || id;
+          const appUrl = ctAppUrlEl ? ctAppUrlEl.value.trim() : '';
+          const stepsText = ctStepsTextEl ? ctStepsTextEl.value : '';
+          const payload = {
+            id,
+            name,
+            app_base_url: appUrl || undefined,
+            stepsText: stepsText,
+          };
+          try {
+            const resp = await postJSON('/tests', payload);
+            ctTestIdEl.value = id;
+            if (ctTestJsonEl) {
+              try {
+                const t = await getJSON(`/tests/${id}`);
+                ctTestJsonEl.textContent = JSON.stringify(t.test || t, null, 2);
+              } catch (e) {
+                ctTestJsonEl.textContent = JSON.stringify(resp, null, 2);
+              }
+            }
+          } catch (e) {
+            alert('Failed to create test: ' + e.message);
+          }
+        }
+
+        async function loadContractTest() {
+          if (!ctTestIdEl || !ctTestJsonEl) return;
+          const id = (ctTestIdEl.value || '').trim();
+          if (!id) return;
+          try {
+            const t = await getJSON(`/tests/${id}`);
+            ctTestJsonEl.textContent = JSON.stringify(t.test || t, null, 2);
+          } catch (e) {
+            alert('Failed to load test: ' + e.message);
+          }
+        }
+
+        async function runContractTest() {
+          if (!ctTestIdEl) return;
+          const id = (ctTestIdEl.value || '').trim();
+          if (!id) return;
+          try {
+            const resp = await postJSON(`/tests/${id}/runs`, { mode: 'live' });
+            const rid = resp.runId || resp.run_id;
+            if (rid) {
+              runEl.textContent = rid;
+            }
+          } catch (e) {
+            alert('Failed to run test: ' + e.message);
+          }
+        }
+
+        async function loadRunDetails() {
+          if (!runDetailsIdEl || !runDetailsEl) return;
+          const rid = (runDetailsIdEl.value || '').trim();
+          if (!rid) return;
+          try {
+            const data = await getJSON(`/runs/${rid}/details`);
+            runDetailsEl.textContent = JSON.stringify(data, null, 2);
+          } catch (e) {
+            alert('Failed to load run details: ' + e.message);
+          }
         }
 
         async function poll() {
@@ -127,6 +219,10 @@ def index():
             statsEl.textContent = '';
           } catch (e) { alert('Failed: ' + e.message); }
         });
+        if (ctCreateBtn) ctCreateBtn.addEventListener('click', createContractTest);
+        if (ctLoadBtn) ctLoadBtn.addEventListener('click', loadContractTest);
+        if (ctRunBtn) ctRunBtn.addEventListener('click', runContractTest);
+        if (runDetailsBtn) runDetailsBtn.addEventListener('click', loadRunDetails);
 
         async function refreshRuns() {
           try {
