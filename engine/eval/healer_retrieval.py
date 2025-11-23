@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
+import json
 
 from engine.core.healing.selector_healer import DeterministicHealer
 
@@ -78,6 +80,31 @@ def aggregate(results: List[Tuple[HealerEvalCase, bool, Dict[str, Any]]]) -> Dic
     if by_reason:
         summary["by_reason"] = by_reason
     return summary
+
+
+def run_corpus(healer: DeterministicHealer | None = None) -> Tuple[Dict[str, Any], List[Tuple[HealerEvalCase, bool, Dict[str, Any]]]]:
+    """Run the default healer corpus and return (summary, results)."""
+    if healer is None:
+        healer = DeterministicHealer(storage=None)
+    results: List[Tuple[HealerEvalCase, bool, Dict[str, Any]]] = []
+    for case in default_corpus():
+        ok, meta = run_healer_case(healer, case)
+        results.append((case, ok, meta))
+    summary = aggregate(results)
+    return summary, results
+
+
+def write_reports(summary: Dict[str, Any], results: List[Tuple[HealerEvalCase, bool, Dict[str, Any]]], out_dir: Path | None = None) -> None:
+    """Write healer evaluation summary and per-case CSV under reports/ by default."""
+    out = out_dir or Path("reports")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "healer_eval_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    lines = ["case_id,category,ok,reason"]
+    for case, ok, meta in results:
+        cat = getattr(case, "category", "generic") or "generic"
+        reason = meta.get("reason")
+        lines.append(f"{case.case_id},{cat},{int(bool(ok))},{reason or ''}")
+    (out / "healer_eval_summary.csv").write_text("\n".join(lines), encoding="utf-8")
 
 
 def default_corpus() -> List[HealerEvalCase]:

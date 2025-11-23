@@ -1,9 +1,13 @@
+from pathlib import Path
+
 from engine.core.healing.selector_healer import DeterministicHealer
 from engine.eval.healer_retrieval import (
     HealerEvalCase,
     default_corpus,
     run_healer_case,
     aggregate,
+    run_corpus,
+    write_reports,
 )
 
 
@@ -47,3 +51,17 @@ def test_retrieval_path_can_be_exercised_with_fake_storage():
     assert meta["primary"]["type"] == "css"
     assert meta["primary"]["value"] == "#retrieved"
     assert storage.calls >= 1
+
+
+def test_run_corpus_and_write_reports(tmp_path: Path):
+    healer = DeterministicHealer(storage=None)
+    summary, results = run_corpus(healer)
+    assert summary["total"] == len(default_corpus())
+    out_dir = tmp_path / "reports"
+    write_reports(summary, results, out_dir=out_dir)
+    json_path = out_dir / "healer_eval_summary.json"
+    csv_path = out_dir / "healer_eval_summary.csv"
+    assert json_path.exists()
+    assert csv_path.exists()
+    content = json_path.read_text(encoding="utf-8")
+    assert '"total"' in content
