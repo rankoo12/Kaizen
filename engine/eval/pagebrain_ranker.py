@@ -193,3 +193,31 @@ def train_and_eval(train_path: Path, dev_path: Path) -> Dict[str, Any]:
         "train": train_metrics,
         "dev": dev_metrics,
     }
+
+
+def compute_lift(train_path: Path, dev_path: Path) -> Dict[str, Any]:
+    """Compute baseline vs model metrics and lift on the dev set.
+
+    Returns a dict with:
+      - baseline: metrics from evaluate_baseline(dev_examples)
+      - train: metrics for the training set (from train_and_eval)
+      - dev: metrics for the dev set (from train_and_eval)
+      - lift: difference dev - baseline for top1/topk/MRR
+    """
+    dev_examples = _load_jsonl(dev_path)
+    baseline = evaluate_baseline(dev_examples)
+    metrics = train_and_eval(train_path, dev_path)
+    train_metrics = metrics.get("train", {})
+    dev_metrics = metrics.get("dev", {})
+    lift: Dict[str, float] = {}
+    for key in ("top1_accuracy", "topk_accuracy", "mrr"):
+        try:
+            lift[key] = float(dev_metrics.get(key, 0.0)) - float(baseline.get(key, 0.0))
+        except Exception:
+            lift[key] = 0.0
+    return {
+        "baseline": baseline,
+        "train": train_metrics,
+        "dev": dev_metrics,
+        "lift": lift,
+    }
