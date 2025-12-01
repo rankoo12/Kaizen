@@ -70,21 +70,38 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._profile_misses = 0
         self._last_heal_extra = None
         # Resolve tenant for this run once (used for PageBrain model selection)
+        self._selector_feedback: dict[str, dict[str, int]] = {}
         try:
-            if getattr(self, "_run_tenant_id", None) is None and getattr(self, "_storage", None) is not None:
+            if getattr(self, "_storage", None) is not None:
                 get_run = getattr(self._storage, "get_run", None)
+                feedback_fn = getattr(self._storage, "get_selector_feedback_for_test", None)
                 if callable(get_run):
                     row = get_run(str(ctx.run_id))
                     if isinstance(row, dict):
-                        self._run_tenant_id = row.get("tenant_id")
+                        if getattr(self, "_run_tenant_id", None) is None:
+                            self._run_tenant_id = row.get("tenant_id")
+                        test_id = row.get("test_id")
+                        if test_id and callable(feedback_fn):
+                            fb = feedback_fn(str(test_id))
+                            if isinstance(fb, dict):
+                                self._selector_feedback = fb
         except Exception:
             self._run_tenant_id = None
+            self._selector_feedback = {}
         # Inform resolver of tenant when supported
         try:
             if self._resolver is not None:
                 setter = getattr(self._resolver, "set_tenant", None)
                 if callable(setter):
                     setter(self._run_tenant_id)
+        except Exception:
+            pass
+        # Inform resolver of selector feedback (human labels) when supported
+        try:
+            if self._resolver is not None:
+                fb_setter = getattr(self._resolver, "set_selector_feedback", None)
+                if callable(fb_setter):
+                    fb_setter(self._selector_feedback or {})
         except Exception:
             pass
 
@@ -387,37 +404,51 @@ class DeterministicPlanExecutor(IPlanExecutor):
 
                 # Click safety policy
                 if tool in {"click", "doubleClick", "rightClick"}:
-                    safety_reason = self._check_click_safety(resolved)
-                    if safety_reason is not None:
-                        healed = self._try_heal(
-                            tool, target or {}, safety_reason, handler, call, ctx
-                        )
-                        if healed is not None:
-                            results.append(healed)
-                            self._emit_report(
-                                ctx,
-                                idx,
-                                tool,
-                                healed,
-                                extra=getattr(self, "_last_heal_extra", None),
-                            )
-                            self._emit_metric(tool, healed)
-                            continue
-                        res = StepResult(
-                            ok=False,
-                            reason=safety_reason,
-                            signature=self._build_signature(resolved),
-                        )
-                        results.append(res)
-                        self._emit_report(
-                            ctx, idx, tool, res, duration=(time.time() - step_start)
-                        )
-                        self._emit_metric(tool, res)
-                        continue
+                      safety_reason = self._check_click_safety(resolved)
+                      if safety_reason is not None:
+                          healed = self._try_heal(
+                              tool, target or {}, safety_reason, handler, call, ctx
+                          )
+                          if healed is not None:
+                              results.append(healed)
+                              self._emit_report(
+                                  ctx,
+                                  idx,
+                                  tool,
+                                  healed,
+                                  extra=getattr(self, "_last_heal_extra", None),
+                              )
+                              self._emit_metric(tool, healed)
+                              continue
+                          res = StepResult(
+                              ok=False,
+                              reason=safety_reason,
+                              signature=self._build_signature(resolved),
+                          )
+                          results.append(res)
+                          self._emit_report(
+                              ctx, idx, tool, res, duration=(time.time() - step_start)
+                          )
+                          self._emit_metric(tool, res)
+                          continue
 
                 # reset per-action heal metadata
                 self._last_heal_extra = None
+                action_artifacts: dict[str, str] = {}
+                # Best-effort per-action screenshots for ML/portal review
+                try:
+                    before_name = self._capture_step_screenshot(ctx, idx, phase="before")
+                    if before_name:
+                        action_artifacts["screenshot_before"] = before_name
+                except Exception:
+                    pass
                 res = handler.execute(call, ctx)
+                try:
+                    after_name = self._capture_step_screenshot(ctx, idx, phase="after")
+                    if after_name:
+                        action_artifacts["screenshot_after"] = after_name
+                except Exception:
+                    pass
                 # Emit PageBrain choice event for logging/datasets when available
                 try:
                     if self._log and pagebrain_meta:
@@ -477,6 +508,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                             executor=executor_block,
                             pagebrain=pagebrain_meta,
                             healer=getattr(self, "_last_heal_extra", None),
+                            artifacts=action_artifacts or None,
                         )
                 except Exception:
                     pass
@@ -565,6 +597,40 @@ class DeterministicPlanExecutor(IPlanExecutor):
             pass
         return results
 
+    def _capture_step_screenshot(self, ctx: ExecCtx, action_index: int, phase: str = "before") -> str | None:
+        """Capture a per-action screenshot for artifacts and portal review.
+
+        Returns the artifact name (e.g. "screenshot/a0_before") when successful,
+        or None when screenshots are unavailable or fail.
+        """
+        if self._browser is None:
+            return None
+        try:
+            from pathlib import Path
+
+            logs_dir = getattr(_settings, "LOGS_DIR", Path("logs"))
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            run_id = getattr(ctx, "run_id", None) or "run"
+            phase_norm = "after" if str(phase).lower() == "after" else "before"
+            filename = f"screenshot-{run_id}-a{action_index}-{phase_norm}.png"
+            out = logs_dir / filename
+            take = getattr(self._browser, "screenshot", None)
+            if not callable(take):
+                return None
+            try:
+                run_coro = getattr(self._browser, "run_coro", None)
+                if callable(run_coro):
+                    run_coro(self._browser.screenshot(str(out)))
+                else:
+                    import asyncio
+
+                    asyncio.run(self._browser.screenshot(str(out)))
+            except Exception:
+                return None
+            return f"screenshot/a{action_index}_{phase_norm}"
+        except Exception:
+            return None
+
     def get_last_heal_stats(self) -> dict:
         # Determine final healer mode used with precedence: llm > deterministic > none
         mode = (
@@ -601,7 +667,11 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 candidates = finder(target) or []
             except Exception:
                 candidates = []
-            if len(candidates) == 1:
+            # Treat any non-empty candidate list as a successful resolve and
+            # pick the first item as the primary target. Callers that care
+            # about the full candidate set (e.g., PageBrain logging) already
+            # receive it directly from resolver.find() outside this loop.
+            if candidates:
                 return candidates[0], False
             attempts += 1
             if attempts >= self._max_attempts:

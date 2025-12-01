@@ -8,7 +8,9 @@ import time
 
 class IArtifactStore(Protocol):
     def list(self, run_id: str) -> List[Dict]: ...
-    def get_bytes(self, run_id: str, name: str) -> Tuple[bytes, str]: ...  # (data, media_type)
+    def get_bytes(
+        self, run_id: str, name: str
+    ) -> Tuple[bytes, str]: ...  # (data, media_type)
 
 
 class FSArtifactStore(IArtifactStore):
@@ -42,6 +44,23 @@ class FSArtifactStore(IArtifactStore):
         scr = self.logs / f"screenshot-{run_id}.png"
         if scr.exists():
             items["screenshot"] = scr
+        # Per-action screenshots: screenshot-<run_id>-a<idx>-before/after.png
+        try:
+            for p in self.logs.glob(f"screenshot-{run_id}-a*-*.png"):
+                if not p.is_file():
+                    continue
+                name = p.name
+                try:
+                    # name pattern: screenshot-<run_id>-a{idx}-{phase}.png
+                    suffix = name.replace(f"screenshot-{run_id}-a", "", 1)
+                    suffix = suffix.rsplit(".png", 1)[0]
+                    idx_str, phase = suffix.split("-", 1)
+                    artifact_name = f"screenshot/a{idx_str}_{phase}"
+                except Exception:
+                    continue
+                items[artifact_name] = p
+        except Exception:
+            pass
         # Downloads saved under logs/downloads/<run_id> (flat listing)
         dl_dir = self.logs / "downloads" / str(run_id)
         try:
@@ -87,7 +106,11 @@ class FSArtifactStore(IArtifactStore):
                 # PII scrub (basic)
                 import re
 
-                text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[REDACTED_EMAIL]", text)
+                text = re.sub(
+                    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+                    "[REDACTED_EMAIL]",
+                    text,
+                )
                 text = re.sub(r"\b(?:\d[ -]?){13,16}\b", "[REDACTED_NUMBER]", text)
                 return text.encode("utf-8"), "text/plain; charset=utf-8"
             except Exception:
@@ -98,7 +121,14 @@ class FSArtifactStore(IArtifactStore):
 
 
 class MinioArtifactStore(IArtifactStore):
-    def __init__(self, endpoint: str, bucket: str, access_key: str, secret_key: str, secure: bool = True):
+    def __init__(
+        self,
+        endpoint: str,
+        bucket: str,
+        access_key: str,
+        secret_key: str,
+        secure: bool = True,
+    ):
         self._endpoint = endpoint
         self._bucket = bucket
         self._access = access_key
@@ -110,7 +140,12 @@ class MinioArtifactStore(IArtifactStore):
             from minio import Minio  # type: ignore
         except Exception as e:
             raise RuntimeError("minio client not available") from e
-        return Minio(self._endpoint, access_key=self._access, secret_key=self._secret, secure=self._secure)
+        return Minio(
+            self._endpoint,
+            access_key=self._access,
+            secret_key=self._secret,
+            secure=self._secure,
+        )
 
     def list(self, run_id: str) -> List[Dict]:
         cli = self._client()
@@ -119,7 +154,13 @@ class MinioArtifactStore(IArtifactStore):
         try:
             for obj in cli.list_objects(self._bucket, prefix=prefix, recursive=True):
                 name = obj.object_name.split("/")[-1]
-                out.append({"name": name, "key": obj.object_name, "size": getattr(obj, "size", 0)})
+                out.append(
+                    {
+                        "name": name,
+                        "key": obj.object_name,
+                        "size": getattr(obj, "size", 0),
+                    }
+                )
         except Exception:
             pass
         return out
@@ -154,13 +195,23 @@ def get_store_from_settings(settings) -> IArtifactStore:
         sec = bool(getattr(settings, "MINIO_SECURE", True))
         if not all([ep, bkt, ak, sk]):
             # Fallback to FS if misconfigured
-            return FSArtifactStore(Path(getattr(settings, "LOGS_DIR", Path("logs"))), Path(getattr(settings, "SNAPSHOTS_DIR", Path("snapshots"))))
+            return FSArtifactStore(
+                Path(getattr(settings, "LOGS_DIR", Path("logs"))),
+                Path(getattr(settings, "SNAPSHOTS_DIR", Path("snapshots"))),
+            )
         return MinioArtifactStore(ep, bkt, ak, sk, secure=sec)
     # default FS
-    return FSArtifactStore(Path(getattr(settings, "LOGS_DIR", Path("logs"))), Path(getattr(settings, "SNAPSHOTS_DIR", Path("snapshots"))))
+    return FSArtifactStore(
+        Path(getattr(settings, "LOGS_DIR", Path("logs"))),
+        Path(getattr(settings, "SNAPSHOTS_DIR", Path("snapshots"))),
+    )
 
 
-def prune_fs_artifacts(root_dirs: list[Path], max_age_days: int | None = None, max_total_bytes: int | None = None) -> Dict[str, int]:
+def prune_fs_artifacts(
+    root_dirs: list[Path],
+    max_age_days: int | None = None,
+    max_total_bytes: int | None = None,
+) -> Dict[str, int]:
     """Delete old artifacts by age and/or total size (oldest first).
 
     Returns summary dict: {files_deleted, bytes_freed}.
