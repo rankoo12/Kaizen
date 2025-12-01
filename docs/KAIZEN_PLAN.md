@@ -184,7 +184,7 @@ Legend: [X] Done  [~] Planned/In Progress  [ ] Not Started  (*) Vision/Goal
 
 16d) PageBrain ML Ranker (GBM-style) - STATUS: [X]
    - **DoD:** Training pipeline for a gradient-boosted ranking model (e.g. LightGBM/XGBoost) over PageBrain features. Offline eval harness computes top-1 / top-k / MRR on the curated dataset and compares multiple candidate models (including heuristic baseline). The selected model is packaged as a versioned artifact and wired as the primary scorer inside PageBrain, with a config flag to fall back to heuristic-only mode.
-   - **Progress:** Candidate features are extracted and stored in datasets; `engine/eval/pagebrain_ranker.py` now builds feature matrices, runs a LightGBM ranking pass when available (with fallback baseline), and reports top-1/top-k/MRR. Eval script (`scripts/pagebrain_ranker_eval.py`) consumes the train/dev exports and reports baseline vs model metrics plus lift on the dev set.
+   - **Progress:** Candidate features are extracted and stored in datasets; `engine/eval/pagebrain_ranker.py` now builds feature matrices, runs a LightGBM ranking pass when available (with fallback baseline), and reports top-1/top-k/MRR. Eval script (`scripts/pagebrain_ranker_eval.py`) consumes the train/dev exports and reports baseline vs model metrics plus lift on the dev set, and emits a simple linear weights file at `reports/pagebrain_model_weights.json` that can be referenced by `KAIZEN_PAGEBRAIN_DEFAULT_MODEL` / `KAIZEN_PAGEBRAIN_MODELS` for runtime scoring.
    - **Tests:** Unit tests for feature extraction/baseline/GBM scaffolding (`engine/tests/pagebrain/test_pagebrain_ranker.py`); exporter/curator tests ensure features exist.
 
 16e) Tenant-isolated PageBrain models - STATUS: [X]
