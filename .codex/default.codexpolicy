@@ -1,0 +1,83 @@
+# ~/.codex/policy/default.codexpolicy
+# Execpolicy uses Starlark-like syntax with prefix_rule() :contentReference[oaicite:9]{index=9}
+
+# --- Absolutely forbidden commands ---
+prefix_rule(
+    pattern = ["rm"],
+    decision = "forbidden",
+    match = [
+        "rm -rf /",
+        "rm -rf .git",
+        "rm -rf node_modules",
+    ],
+)
+
+prefix_rule(
+    pattern = ["sudo"],
+    decision = "forbidden",
+    match = ["sudo rm -rf /"],
+)
+
+# --- High-risk infra / Docker: prompt first ---
+prefix_rule(
+    pattern = ["docker"],
+    decision = "prompt",
+    match = [
+        "docker system prune",
+        "docker volume rm",
+        "docker compose down",
+        "docker compose down -v",
+    ],
+    not_match = [
+        "docker ps",
+        "docker images",
+    ],
+)
+
+# --- Git operations: prompt for anything that changes history or remote ---
+prefix_rule(
+    pattern = ["git"],
+    decision = "prompt",
+    match = [
+        "git push",
+        "git fetch",
+        "git rebase",
+        "git reset --hard",
+        "git clean -fd",
+    ],
+    not_match = [
+        "git status",
+        "git diff",
+        "git log",
+    ],
+)
+
+# --- System-level changes: prompt ---
+prefix_rule(
+    pattern = ["chmod"],
+    decision = "prompt",
+    match = [
+        "chmod -R",
+    ],
+)
+
+prefix_rule(
+    pattern = ["chown"],
+    decision = "prompt",
+    match = [
+        "chown -R",
+    ],
+)
+
+# --- Safe read-only commands: always allowed ---
+prefix_rule(
+    pattern = ["ls"],
+    decision = "allow",
+    match = ["ls", "ls -la"],
+)
+
+prefix_rule(
+    pattern = ["cat"],
+    decision = "allow",
+    match = ["cat README.md"],
+)
