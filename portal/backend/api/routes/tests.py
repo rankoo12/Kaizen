@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 try:
     from engine.core.parsing.nl_steps import parse_steps_text  # type: ignore
 except Exception:
+
     def parse_steps_text(steps_text: str):
         steps = []
         if isinstance(steps_text, str):
@@ -25,6 +26,7 @@ except Exception:
                     }
                 )
         return steps
+
 
 router = APIRouter(prefix="/tests", tags=["tests"])
 
@@ -48,8 +50,10 @@ def create_test(request: Request, body: Dict[str, Any] | None = None):
     except Exception:
         pass
     try:
-        with httpx.Client(timeout=10.0) as client:
-            r = client.post(f"{engine_base}/tests", json=engine_payload, headers=headers or None)
+        with httpx.Client(timeout=120.0) as client:
+            r = client.post(
+                f"{engine_base}/tests", json=engine_payload, headers=headers or None
+            )
             r.raise_for_status()
             data = r.json()
     except Exception as e:
@@ -94,7 +98,11 @@ def run_test(request: Request, test_id: str, body: Dict[str, Any] | None = None)
         pass
     try:
         with httpx.Client(timeout=10.0) as client:
-            r = client.post(f"{engine_base}/tests/{test_id}/runs", json=body, headers=headers or None)
+            r = client.post(
+                f"{engine_base}/tests/{test_id}/runs",
+                json=body,
+                headers=headers or None,
+            )
             r.raise_for_status()
             data = r.json()
     except Exception as e:
