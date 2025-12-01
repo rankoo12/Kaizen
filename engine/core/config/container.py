@@ -9,7 +9,12 @@ from engine.core.orchestrator.live_runner import LiveRunner
 from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
 from engine.core.logging.log import JsonlLogger, ILog
-from engine.core.reporting.reporter import IReporter, RUN_REPORTER, InMemoryRunReporter, JsonlTailReporter
+from engine.core.reporting.reporter import (
+    IReporter,
+    RUN_REPORTER,
+    InMemoryRunReporter,
+    JsonlTailReporter,
+)
 from engine.core.commands import (
     OpenHandler,
     ClickHandler,
@@ -44,7 +49,9 @@ from engine.core.commands import (
 )
 from engine.core.config.settings import settings
 from engine.core.healing.selector_healer import DeterministicHealer
-from engine.core.resolving.snapshot_resolver import resolve_snapshot as _resolve_snapshot_impl
+from engine.core.resolving.snapshot_resolver import (
+    resolve_snapshot as _resolve_snapshot_impl,
+)
 from engine.core.llm.ollama_text import OllamaTextAdapter
 
 
@@ -65,7 +72,12 @@ def _resolve_snapshot_stub(
 ):
     # Delegate to real implementation (static HTML candidate catalog + semantic resolve)
     try:
-        return _resolve_snapshot_impl(plan=plan, html_path=html_path, tolerance=tolerance, healer_depth=healer_depth)
+        return _resolve_snapshot_impl(
+            plan=plan,
+            html_path=html_path,
+            tolerance=tolerance,
+            healer_depth=healer_depth,
+        )
     except Exception:
         # Best-effort fallback to an empty result to avoid breaking snapshot runs
         return {
@@ -90,10 +102,17 @@ class InMemoryStorage:
         self._runs: dict[str, dict] = {}
         # profiles: list of dicts with keys: domain, tool, target_signature, selector, hits, last_seen
         self._profiles: list[dict] = []
+        # per-action annotations for runs (dev-only, in-memory)
+        self._annotations: list[dict] = []
 
     def start_run(self, test_id):
-        rid = f"run-{test_id}"
-        self._runs[rid] = {"test_id": test_id, "started": True}
+        import time as _time
+
+        # Use timestamp-based suffix to avoid reusing the same run_id
+        # across multiple executions of the same test (e.g., contract tests).
+        ts = int(_time.time())
+        rid = f"run-{ts}-{test_id}"
+        self._runs[rid] = {"test_id": test_id, "started": True, "started_at": ts}
         return rid
 
     def record_step(self, step):
@@ -109,8 +128,108 @@ class InMemoryStorage:
                 except Exception:
                     rec["stats"] = stats
 
+    # ---- Per-action annotations (in-memory) ----
+    def save_run_action_annotation(
+        self,
+        *,
+        run_id: str,
+        action_index: int,
+        label: str,
+        source: str,
+        notes: str | None = None,
+        user_id: str | None = None,
+        selector: dict | None = None,
+        domain: str | None = None,
+        tool: str | None = None,
+        target_signature: dict | None = None,
+    ) -> dict:
+        import time as _time
+
+        rid = str(run_id)
+        idx = int(action_index)
+        src = str(source)
+        row = None
+        for ann in self._annotations:
+            if (
+                ann.get("run_id") == rid
+                and ann.get("action_index") == idx
+                and ann.get("source") == src
+            ):
+                row = ann
+                break
+        if row is None:
+            row = {
+                "run_id": rid,
+                "action_index": idx,
+                "test_id": None,
+                "step_id": None,
+                "label": str(label),
+                "source": src,
+                "notes": notes,
+                "user_id": user_id,
+                "created_at": _time.time(),
+                "selector": selector,
+                "domain": domain,
+                "tool": tool,
+                "target_signature": target_signature,
+            }
+            self._annotations.append(row)
+        else:
+            row["label"] = str(label)
+            row["notes"] = notes
+            row["user_id"] = user_id
+            row["created_at"] = _time.time()
+            row["selector"] = selector if selector is not None else row.get("selector")
+            row["domain"] = domain if domain is not None else row.get("domain")
+            row["tool"] = tool if tool is not None else row.get("tool")
+            row["target_signature"] = (
+                target_signature if target_signature is not None else row.get("target_signature")
+            )
+        return dict(row)
+
+    def get_run_action_annotations(self, run_id: str) -> list[dict]:
+        rid = str(run_id)
+        anns = [a for a in self._annotations if a.get("run_id") == rid]
+        anns.sort(
+            key=lambda a: (
+                int(a.get("action_index", 0) or 0),
+                float(a.get("created_at", 0.0) or 0.0),
+            )
+        )
+        return [dict(a) for a in anns]
+
+    def get_selector_feedback_for_test(self, test_id: str) -> dict:
+        """In-memory stub: aggregate annotations by selector for a pseudo test_id.
+
+        Since InMemoryStorage does not persist runs/tests, this groups on annotations
+        whose test_id matches. Used only in dev/test environments.
+        """
+        fb: dict[str, dict[str, int]] = {}
+        tid = str(test_id)
+        for row in self._annotations:
+            if str(row.get("test_id") or "") != tid:
+                continue
+            sel = row.get("selector") or {}
+            if not isinstance(sel, dict):
+                continue
+            sel_type = sel.get("type")
+            sel_value = sel.get("value")
+            if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+                continue
+            key = f"{sel_type}|{sel_value}"
+            entry = fb.setdefault(key, {"passed": 0, "failed": 0, "total": 0})
+            entry["total"] += 1
+            lab = str(row.get("label") or "").lower()
+            if lab == "passed":
+                entry["passed"] += 1
+            elif lab == "failed":
+                entry["failed"] += 1
+        return fb
+
     # ---- Minimal Locator Profiles (in-memory) ----
-    def save_locator_profile(self, *, domain, tool: str, target_signature: dict, selector: dict) -> None:
+    def save_locator_profile(
+        self, *, domain, tool: str, target_signature: dict, selector: dict
+    ) -> None:
         import time as _time
 
         # normalize selector dict to minimal form
@@ -122,18 +241,24 @@ class InMemoryStorage:
         now = _time.time()
         # dedupe by domain+tool+selector
         for row in self._profiles:
-            if row["tool"] == tool and row.get("domain") == domain and row["selector"] == norm_sel:
+            if (
+                row["tool"] == tool
+                and row.get("domain") == domain
+                and row["selector"] == norm_sel
+            ):
                 row["hits"] = int(row.get("hits", 0)) + 1
                 row["last_seen"] = now
                 return
-        self._profiles.append({
-            "domain": domain,
-            "tool": tool,
-            "target_signature": dict(target_signature or {}),
-            "selector": norm_sel,
-            "hits": 1,
-            "last_seen": now,
-        })
+        self._profiles.append(
+            {
+                "domain": domain,
+                "tool": tool,
+                "target_signature": dict(target_signature or {}),
+                "selector": norm_sel,
+                "hits": 1,
+                "last_seen": now,
+            }
+        )
 
     def _sig_contains(self, sup: dict, sub: dict) -> bool:
         try:
@@ -152,7 +277,11 @@ class InMemoryStorage:
         for row in self._profiles:
             if row["tool"] != tool:
                 continue
-            dom_score = 1 if (row.get("domain") and row.get("domain") == domain) else (0 if row.get("domain") is None else -1)
+            dom_score = (
+                1
+                if (row.get("domain") and row.get("domain") == domain)
+                else (0 if row.get("domain") is None else -1)
+            )
             sig = row.get("target_signature") or {}
             if target_signature and self._sig_contains(sig, target_signature):
                 # Prefer more specific stored signatures (row with more fields)
@@ -160,19 +289,53 @@ class InMemoryStorage:
                     spec = len(sig)
                 except Exception:
                     spec = 0
-                matches.append((2 + dom_score, spec, int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+                matches.append(
+                    (
+                        2 + dom_score,
+                        spec,
+                        int(row.get("hits", 0)),
+                        float(row.get("last_seen", 0.0)),
+                        row,
+                    )
+                )
             elif not target_signature:
                 # allow best-by-tool fallback
-                matches.append((dom_score, 0, int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+                matches.append(
+                    (
+                        dom_score,
+                        0,
+                        int(row.get("hits", 0)),
+                        float(row.get("last_seen", 0.0)),
+                        row,
+                    )
+                )
         if not matches:
             # try global if we didn't match a scoped domain
             for row in self._profiles:
                 if row["tool"] != tool:
                     continue
-                if target_signature and self._sig_contains(row.get("target_signature") or {}, target_signature):
-                    matches.append((0, len(target_signature), int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+                if target_signature and self._sig_contains(
+                    row.get("target_signature") or {}, target_signature
+                ):
+                    matches.append(
+                        (
+                            0,
+                            len(target_signature),
+                            int(row.get("hits", 0)),
+                            float(row.get("last_seen", 0.0)),
+                            row,
+                        )
+                    )
                 elif not target_signature:
-                    matches.append((0, 0, int(row.get("hits", 0)), float(row.get("last_seen", 0.0)), row))
+                    matches.append(
+                        (
+                            0,
+                            0,
+                            int(row.get("hits", 0)),
+                            float(row.get("last_seen", 0.0)),
+                            row,
+                        )
+                    )
         if not matches:
             return None
         matches.sort(key=lambda t: (t[0], t[1], t[2], t[3]), reverse=True)
@@ -197,12 +360,19 @@ class Container(containers.DeclarativeContainer):
         backend = getattr(settings_obj, "REPORTER_BACKEND", "in_memory")
         if backend == "jsonl_tail":
             try:
-                return JsonlTailReporter(events_path=settings_obj.LOGS_DIR / "runs_events.jsonl", resync_on_start=bool(getattr(settings_obj, "REPORTER_RESYNC_ON_START", False)))
+                return JsonlTailReporter(
+                    events_path=settings_obj.LOGS_DIR / "runs_events.jsonl",
+                    resync_on_start=bool(
+                        getattr(settings_obj, "REPORTER_RESYNC_ON_START", False)
+                    ),
+                )
             except Exception:
                 return InMemoryRunReporter()
         return InMemoryRunReporter()
 
-    reporter: providers.Provider[IReporter | None] = providers.Callable(_build_reporter, settings)
+    reporter: providers.Provider[IReporter | None] = providers.Callable(
+        _build_reporter, settings
+    )
 
     # TODO: replace with actual resolve_snapshot service
 
@@ -223,7 +393,9 @@ class Container(containers.DeclarativeContainer):
                 print("[storage] initializing PostgresStorage")
                 return PostgresStorage(dsn)
             except Exception as e:
-                print(f"[storage] PostgresStorage init failed, falling back to memory: {e}")
+                print(
+                    f"[storage] PostgresStorage init failed, falling back to memory: {e}"
+                )
                 return InMemoryStorage()
         return InMemoryStorage()
 
@@ -251,7 +423,14 @@ class Container(containers.DeclarativeContainer):
         except Exception:
             pass
         if default_model_id:
-            store.register_model(default_model_id, (models_cfg or {}).get(default_model_id) if isinstance(models_cfg, dict) else None)
+            store.register_model(
+                default_model_id,
+                (
+                    (models_cfg or {}).get(default_model_id)
+                    if isinstance(models_cfg, dict)
+                    else None
+                ),
+            )
         try:
             if isinstance(tenant_map, dict):
                 for tid, mid in tenant_map.items():
@@ -261,7 +440,9 @@ class Container(containers.DeclarativeContainer):
         return store
 
     model_store = providers.Factory(_build_model_store, settings)
-    element_resolver = providers.Factory(PageBrainResolver, browser=playwright_browser, model_store=model_store)
+    element_resolver = providers.Factory(
+        PageBrainResolver, browser=playwright_browser, model_store=model_store
+    )
 
     # Concrete action handlers using shared Playwright browser
     open_handler = providers.Factory(OpenHandler, browser=playwright_browser)
@@ -269,12 +450,18 @@ class Container(containers.DeclarativeContainer):
     type_handler = providers.Factory(TypeHandler, browser=playwright_browser)
     press_handler = providers.Factory(PressHandler, browser=playwright_browser)
     wait_handler = providers.Factory(WaitForHandler, browser=playwright_browser)
-    assert_visible_handler = providers.Factory(AssertVisibleHandler, browser=playwright_browser)
-    assert_text_handler = providers.Factory(AssertTextHandler, browser=playwright_browser)
+    assert_visible_handler = providers.Factory(
+        AssertVisibleHandler, browser=playwright_browser
+    )
+    assert_text_handler = providers.Factory(
+        AssertTextHandler, browser=playwright_browser
+    )
     assert_url_handler = providers.Factory(AssertUrlHandler, browser=playwright_browser)
     custom_handler = providers.Factory(CustomHandler, browser=playwright_browser)
     dblclick_handler = providers.Factory(DoubleClickHandler, browser=playwright_browser)
-    rightclick_handler = providers.Factory(RightClickHandler, browser=playwright_browser)
+    rightclick_handler = providers.Factory(
+        RightClickHandler, browser=playwright_browser
+    )
     hover_handler = providers.Factory(HoverHandler, browser=playwright_browser)
     focus_handler = providers.Factory(FocusHandler, browser=playwright_browser)
     blur_handler = providers.Factory(BlurHandler, browser=playwright_browser)
@@ -290,7 +477,9 @@ class Container(containers.DeclarativeContainer):
     newtab_handler = providers.Factory(NewTabHandler, browser=playwright_browser)
     newwin_handler = providers.Factory(NewWindowHandler, browser=playwright_browser)
     switchtab_handler = providers.Factory(SwitchTabHandler, browser=playwright_browser)
-    switchwin_handler = providers.Factory(SwitchWindowHandler, browser=playwright_browser)
+    switchwin_handler = providers.Factory(
+        SwitchWindowHandler, browser=playwright_browser
+    )
     closetab_handler = providers.Factory(CloseTabHandler, browser=playwright_browser)
     closewin_handler = providers.Factory(CloseWindowHandler, browser=playwright_browser)
     download_handler = providers.Factory(DownloadHandler, browser=playwright_browser)
@@ -338,7 +527,11 @@ class Container(containers.DeclarativeContainer):
 
     # Deterministic plan executor (stub) and high-level orchestrator
     healer = providers.Callable(
-        lambda s, st: DeterministicHealer(storage=st) if getattr(s, "HEALER_ENABLED", False) else None,
+        lambda s, st: (
+            DeterministicHealer(storage=st)
+            if getattr(s, "HEALER_ENABLED", False)
+            else None
+        ),
         settings,
         storage,
     )
@@ -356,15 +549,17 @@ class Container(containers.DeclarativeContainer):
 
     # Optional LLM adapter for planner preview and future planner path
     llm_text = providers.Callable(
-        lambda s: OllamaTextAdapter(
-            getattr(s, "OLLAMA_BASE_URL", "http://ollama:11434"),
-            getattr(s, "OLLAMA_MODEL", "llama3.1"),
-            timeout=float(getattr(s, "LLM_TIMEOUT_SECONDS", 10.0) or 10.0),
-            max_tokens=int(getattr(s, "LLM_MAX_TOKENS", 256) or 256),
-            temperature=float(getattr(s, "LLM_TEMPERATURE", 0.2) or 0.2),
-        )
-        if bool(getattr(s, "LLM_ENABLED", False))
-        else None,
+        lambda s: (
+            OllamaTextAdapter(
+                getattr(s, "OLLAMA_BASE_URL", "http://ollama:11434"),
+                getattr(s, "OLLAMA_MODEL", "llama3.1"),
+                timeout=float(getattr(s, "LLM_TIMEOUT_SECONDS", 10.0) or 10.0),
+                max_tokens=int(getattr(s, "LLM_MAX_TOKENS", 256) or 256),
+                temperature=float(getattr(s, "LLM_TEMPERATURE", 0.2) or 0.2),
+            )
+            if bool(getattr(s, "LLM_ENABLED", False))
+            else None
+        ),
         settings,
     )
 

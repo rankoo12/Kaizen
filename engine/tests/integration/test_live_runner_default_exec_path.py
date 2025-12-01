@@ -27,7 +27,7 @@ def test_live_runner_defaults_to_orchestrator(monkeypatch):
         steps = []
 
     run_id = runner.run_sync(Spec())
-    assert run_id == "run-d1"
+    assert isinstance(run_id, str) and run_id.startswith("run-")
     assert len(fake_exec.calls) == 1
     plan, ctx = fake_exec.calls[0]
     assert plan[0]["tool"] == "open"
