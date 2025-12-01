@@ -47,6 +47,24 @@ class PostgresStorage:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_steps_run_idx ON steps(run_id, idx);
             CREATE INDEX IF NOT EXISTS idx_steps_tenant ON steps(tenant_id);
 
+            -- per-action human/ML annotations (for PageBrain training)
+            CREATE TABLE IF NOT EXISTS run_action_annotations (
+              id SERIAL PRIMARY KEY,
+              run_id TEXT NOT NULL,
+              action_index INT NOT NULL,
+              test_id TEXT NULL,
+              step_id TEXT NULL,
+              label TEXT NOT NULL,
+              source TEXT NOT NULL,
+              notes TEXT NULL,
+              user_id TEXT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_run_action_annotations_uniq
+              ON run_action_annotations(run_id, action_index, source);
+            CREATE INDEX IF NOT EXISTS idx_run_action_annotations_run
+              ON run_action_annotations(run_id);
+
             -- suites table
             CREATE TABLE IF NOT EXISTS suites (
               id SERIAL PRIMARY KEY,
@@ -109,6 +127,30 @@ class PostgresStorage:
                     pass
                 try:
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_tenant ON runs(tenant_id)")
+                except Exception:
+                    pass
+                # Best-effort additive columns for annotations metadata
+                try:
+                    cur.execute("ALTER TABLE run_action_annotations ADD COLUMN IF NOT EXISTS selector JSONB")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("ALTER TABLE run_action_annotations ADD COLUMN IF NOT EXISTS domain TEXT")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("ALTER TABLE run_action_annotations ADD COLUMN IF NOT EXISTS tool TEXT")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("ALTER TABLE run_action_annotations ADD COLUMN IF NOT EXISTS target_signature JSONB")
+                except Exception:
+                    pass
+                try:
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_run_action_annotations_selector "
+                        "ON run_action_annotations( (selector->>'value') )"
+                    )
                 except Exception:
                     pass
                 try:
@@ -227,6 +269,136 @@ class PostgresStorage:
         except Exception:
             return None
 
+    def save_run_action_annotation(
+        self,
+        *,
+        run_id: str,
+        action_index: int,
+        label: str,
+        source: str,
+        notes: str | None = None,
+        user_id: str | None = None,
+        selector: dict | None = None,
+        domain: str | None = None,
+        tool: str | None = None,
+        target_signature: dict | None = None,
+    ) -> dict | None:
+        """Insert or update a per-action annotation for a run (PageBrain labels)."""
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    # Try to resolve test_id from the parent run when available
+                    test_id: str | None = None
+                    resolved_domain: str | None = domain
+                    try:
+                        cur.execute(
+                            "SELECT test_id, website FROM runs WHERE run_id=%s", (run_id,)
+                        )
+                        row = cur.fetchone()
+                        if row:
+                            test_id = row[0]
+                            if resolved_domain is None and row[1]:
+                                # Best-effort extract host from website URL
+                                try:
+                                    from urllib.parse import urlparse as _urlparse
+
+                                    parsed = _urlparse(str(row[1]))
+                                    resolved_domain = parsed.hostname or str(row[1])
+                                except Exception:
+                                    resolved_domain = str(row[1])
+                    except Exception:
+                        test_id = None
+                        resolved_domain = domain
+                    sel_json = json.dumps(selector) if selector is not None else None
+                    sig_json = json.dumps(target_signature) if target_signature is not None else None
+                    cur.execute(
+                        """
+                        INSERT INTO run_action_annotations(run_id, action_index, test_id, label, source, notes, user_id, selector, domain, tool, target_signature)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)
+                        ON CONFLICT (run_id, action_index, source)
+                        DO UPDATE SET
+                          label=EXCLUDED.label,
+                          notes=EXCLUDED.notes,
+                          user_id=EXCLUDED.user_id,
+                          selector=COALESCE(EXCLUDED.selector, run_action_annotations.selector),
+                          domain=COALESCE(EXCLUDED.domain, run_action_annotations.domain),
+                          tool=COALESCE(EXCLUDED.tool, run_action_annotations.tool),
+                          target_signature=COALESCE(EXCLUDED.target_signature, run_action_annotations.target_signature)
+                        RETURNING run_id, action_index, test_id, step_id, label, source, notes, user_id, created_at, selector, domain, tool, target_signature
+                        """,
+                        (
+                            str(run_id),
+                            int(action_index),
+                            test_id,
+                            str(label),
+                            str(source),
+                            notes,
+                            user_id,
+                            sel_json,
+                            resolved_domain,
+                            tool,
+                            sig_json,
+                        ),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        return None
+                    return {
+                        "run_id": row[0],
+                        "action_index": int(row[1]) if row[1] is not None else None,
+                        "test_id": row[2],
+                        "step_id": row[3],
+                        "label": row[4],
+                        "source": row[5],
+                        "notes": row[6],
+                        "user_id": row[7],
+                        "created_at": row[8].isoformat() if hasattr(row[8], "isoformat") else row[8],
+                        "selector": row[9] if isinstance(row[9], dict) else (json.loads(row[9]) if row[9] else None),
+                        "domain": row[10],
+                        "tool": row[11],
+                        "target_signature": row[12] if isinstance(row[12], dict) else (json.loads(row[12]) if row[12] else None),
+                    }
+        except Exception:
+            return None
+
+    def get_run_action_annotations(self, run_id: str) -> list[dict]:
+        """Return all annotations for a given run_id, ordered by action_index then created_at."""
+        out: list[dict] = []
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT run_id, action_index, test_id, step_id, label, source, notes, user_id, created_at, selector, domain, tool, target_signature
+                        FROM run_action_annotations
+                        WHERE run_id=%s
+                        ORDER BY action_index ASC, created_at ASC
+                        """,
+                        (str(run_id),),
+                    )
+                    rows = cur.fetchall() or []
+                    for row in rows:
+                        out.append(
+                            {
+                                "run_id": row[0],
+                                "action_index": int(row[1]) if row[1] is not None else None,
+                                "test_id": row[2],
+                                "step_id": row[3],
+                                "label": row[4],
+                                "source": row[5],
+                                "notes": row[6],
+                                "user_id": row[7],
+                                "created_at": row[8].isoformat() if hasattr(row[8], "isoformat") else row[8],
+                                "selector": row[9] if isinstance(row[9], dict) else (json.loads(row[9]) if row[9] else None),
+                                "domain": row[10],
+                                "tool": row[11],
+                                "target_signature": row[12] if isinstance(row[12], dict) else (json.loads(row[12]) if row[12] else None),
+                            }
+                        )
+        except Exception:
+            return []
+        return out
+
     def finish_run(self, run_id: str, stats: dict | None = None) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
@@ -245,22 +417,75 @@ class PostgresStorage:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT run_id, website, extract(epoch from started_at), extract(epoch from finished_at), stats, tenant_id FROM runs WHERE run_id=%s",
+                    """
+                    SELECT run_id, test_id, website,
+                           extract(epoch from started_at),
+                           extract(epoch from finished_at),
+                           stats, tenant_id
+                    FROM runs
+                    WHERE run_id=%s
+                    """,
                     (run_id,),
                 )
                 row = cur.fetchone()
                 if not row:
                     return None
-                status = "finished" if row[3] is not None else "running"
+                status = "finished" if row[4] is not None else "running"
                 return {
                     "run_id": row[0],
-                    "website": row[1],
-                    "started": float(row[2] or 0),
-                    "finished": float(row[3]) if row[3] is not None else None,
+                    "test_id": row[1],
+                    "website": row[2],
+                    "started": float(row[3] or 0),
+                    "finished": float(row[4]) if row[4] is not None else None,
                     "status": status,
-                    "stats": row[4] if isinstance(row[4], dict) else (json.loads(row[4]) if row[4] else {}),
-                    "tenant_id": row[5],
+                    "stats": row[5] if isinstance(row[5], dict) else (json.loads(row[5]) if row[5] else {}),
+                    "tenant_id": row[6],
                 }
+
+    def get_selector_feedback_for_test(self, test_id: str) -> dict:
+        """Aggregate human annotation feedback per selector for a given test_id.
+
+        Returns a mapping of "type|value" -> {"passed": int, "failed": int, "total": int}.
+        """
+        feedback: dict[str, dict[str, int]] = {}
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT selector, label, COUNT(*) AS c
+                        FROM run_action_annotations
+                        WHERE test_id=%s AND selector IS NOT NULL
+                        GROUP BY selector, label
+                        """,
+                        (str(test_id),),
+                    )
+                    rows = cur.fetchall() or []
+                    for sel_raw, label, count in rows:
+                        if sel_raw is None:
+                            continue
+                        try:
+                            sel_obj = sel_raw if isinstance(sel_raw, dict) else json.loads(sel_raw)
+                        except Exception:
+                            continue
+                        if not isinstance(sel_obj, dict):
+                            continue
+                        sel_type = sel_obj.get("type")
+                        sel_value = sel_obj.get("value")
+                        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+                            continue
+                        key = f"{sel_type}|{sel_value}"
+                        row_fb = feedback.setdefault(key, {"passed": 0, "failed": 0, "total": 0})
+                        n = int(count or 0)
+                        row_fb["total"] += n
+                        lab = (str(label or "")).lower()
+                        if lab == "passed":
+                            row_fb["passed"] += n
+                        elif lab == "failed":
+                            row_fb["failed"] += n
+        except Exception:
+            return {}
+        return feedback
 
     # ---- Suites ----
     def save_suite(self, suite_id: str, spec: dict, *, tenant_id: str | None = None) -> None:

@@ -20,7 +20,7 @@ class EvalBrowser:
 def test_find_text_prefers_input_value_contains_when_present():
     r = ElementResolver(browser=EvalBrowser())
     out = r.find({"text": "small size"})
-    assert isinstance(out, list) and len(out) == 1
+    assert isinstance(out, list) and len(out) >= 1
     sel = out[0]
     assert isinstance(sel, dict) and sel.get("type") == "css"
     val = sel.get("value") or ""

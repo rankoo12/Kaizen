@@ -26,15 +26,81 @@ class PageBrainResolver(ElementResolver):
         self._tenant_id: str | None = None
         self._model_store = model_store
         self._model_cache: Dict[str, Any] = {}
+        # Aggregated selector feedback for this run/test, keyed by "type|value"
+        self._selector_feedback: Dict[str, Dict[str, Any]] = {}
 
     def set_tenant(self, tenant_id: str | None) -> None:
         self._tenant_id = tenant_id
 
+    def set_selector_feedback(self, feedback: Dict[str, Any] | None) -> None:
+        """Inject aggregated human feedback per selector for this run/test.
+
+        Expected shape: { "type|value": {"passed": int, "failed": int, "total": int}, ... }.
+        """
+        if isinstance(feedback, dict):
+            self._selector_feedback = dict(feedback)
+        else:
+            self._selector_feedback = {}
+
     def _resolve_candidates(self, target: dict) -> list[Any]:
         return super().find(target) or []
 
+    def _selector_key(self, cand: dict) -> str | None:
+        if not isinstance(cand, dict):
+            return None
+        sel_type = cand.get("type")
+        sel_value = cand.get("value")
+        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+            return None
+        return f"{sel_type}|{sel_value}"
+
+    def _apply_feedback_penalty(self, candidates: list[Any]) -> list[Any]:
+        """Filter or down-weight candidates based on human feedback.
+
+        Simple rule: if a selector has more 'failed' than 'passed' votes for
+        this test, drop it from the candidate list. If all candidates would be
+        dropped, fall back to the original list.
+        """
+        fb = self._selector_feedback or {}
+        if not fb or not candidates:
+            return candidates
+        kept: list[Any] = []
+        for cand in candidates:
+            key = self._selector_key(cand) or ""
+            stats = fb.get(key) or {}
+            try:
+                failed = int(stats.get("failed", 0) or 0)
+                passed = int(stats.get("passed", 0) or 0)
+            except Exception:
+                failed = 0
+                passed = 0
+            # Drop selectors that have been marked failed more often than passed
+            if failed > passed and (failed + passed) > 0:
+                continue
+            kept.append(cand)
+        return kept or candidates
+
     def find(self, target: dict) -> list[Any]:
+        # Base candidates from live resolver
         candidates = self._resolve_candidates(target)
+
+        model_id = None
+        model_meta: dict | None = None
+        try:
+            if self._model_store is not None:
+                model_id = self._model_store.get_model(self._tenant_id)
+                model_obj = self._model_store.get_model_obj(self._tenant_id)
+                model_meta = {"id": model_id, "loaded": bool(model_obj)}
+                if model_obj:
+                    ranked_candidates = self._rank_with_model(candidates, model_obj)
+                    if ranked_candidates:
+                        candidates = ranked_candidates
+        except Exception:
+            model_id = None
+            model_meta = None
+
+        # Apply human feedback-based penalties (drop historically failed selectors)
+        candidates = self._apply_feedback_penalty(candidates)
         chosen = candidates[0] if candidates else None
 
         ranked: List[Dict[str, Any]] = []
@@ -52,22 +118,6 @@ class PageBrainResolver(ElementResolver):
                     "enabled": cand.get("enabled"),
                 }
             )
-
-        model_id = None
-        model_meta: dict | None = None
-        try:
-            if self._model_store is not None:
-                model_id = self._model_store.get_model(self._tenant_id)
-                model_obj = self._model_store.get_model_obj(self._tenant_id)
-                model_meta = {"id": model_id, "loaded": bool(model_obj)}
-                if model_obj:
-                    ranked_candidates = self._rank_with_model(candidates, model_obj)
-                    if ranked_candidates:
-                        candidates = ranked_candidates
-                        chosen = candidates[0]
-        except Exception:
-            model_id = None
-            model_meta = None
 
         self._last_pagebrain = {
             "path": "pagebrain_v1",

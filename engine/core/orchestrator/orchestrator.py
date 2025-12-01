@@ -159,7 +159,9 @@ class EngineOrchestrator(IOrchestrator):
                 "healer": heal_stats.get("healer", "none"),
                 "heal_attempts": heal_stats.get("heal_attempts", 0),
                 "heal_successes": heal_stats.get("heal_successes", 0),
-                "healed_rate": max(0.0, min(1.0, float(heal_stats.get("healed_rate", 0.0) or 0.0))),
+                "healed_rate": max(
+                    0.0, min(1.0, float(heal_stats.get("healed_rate", 0.0) or 0.0))
+                ),
                 "profile_hits": int(heal_stats.get("profile_hits", 0) or 0),
                 "profile_misses": int(heal_stats.get("profile_misses", 0) or 0),
                 "redactions": [],
@@ -176,7 +178,11 @@ class EngineOrchestrator(IOrchestrator):
 
     def run_live(self, spec: Any, *, url: str | None = None) -> str:
         # Start run and log
-        test_id = getattr(spec, "id", "unknown")
+        if isinstance(spec, dict):
+            # Prefer contract-style id, then name; fall back to "unknown"
+            test_id = str(spec.get("id") or spec.get("name") or "unknown")
+        else:
+            test_id = getattr(spec, "id", "unknown")
         if hasattr(self._storage, "start_run"):
             run_id = self._storage.start_run(test_id=test_id)
         else:
@@ -188,7 +194,7 @@ class EngineOrchestrator(IOrchestrator):
                 run_logger = self._log.run_logger(run_id=run_id)  # type: ignore[attr-defined]
             except Exception:
                 run_logger = None
-        if (run_logger or self._log):
+        if run_logger or self._log:
             extra = {}
             try:
                 if getattr(self._settings, "SBOM_REF", None):
@@ -200,7 +206,11 @@ class EngineOrchestrator(IOrchestrator):
             except Exception:
                 pass
         # Determine planner path before emitting start event
-        planner_path = getattr(self._settings, "PLANNER_PATH", "glue") if hasattr(self, "_settings") and self._settings else "glue"
+        planner_path = (
+            getattr(self._settings, "PLANNER_PATH", "glue")
+            if hasattr(self, "_settings") and self._settings
+            else "glue"
+        )
         if self._reporter:
             self._reporter.on_run_start(
                 run_id,
@@ -265,9 +275,18 @@ class EngineOrchestrator(IOrchestrator):
             # glue mapping fallback
             lower = text.strip().lower()
             # Navigation, tab/window, scroll, and basic actions
-            if "go back" in lower or lower.strip() in {"back", "previous page", "previous screen"}:
+            if "go back" in lower or lower.strip() in {
+                "back",
+                "previous page",
+                "previous screen",
+            }:
                 plan.append({"tool": "back", "args": {}})
-            elif "go forward" in lower or "next page" in lower or "next screen" in lower or lower.strip() in {"forward"}:
+            elif (
+                "go forward" in lower
+                or "next page" in lower
+                or "next screen" in lower
+                or lower.strip() in {"forward"}
+            ):
                 plan.append({"tool": "forward", "args": {}})
             elif "reload" in lower or "refresh" in lower:
                 plan.append({"tool": "reload", "args": {}})
@@ -299,11 +318,22 @@ class EngineOrchestrator(IOrchestrator):
                         pass
                     if args2:
                         plan.append({"tool": "switchWindow", "args": args2})
-            elif "close current tab" in lower or "close the current tab" in lower or lower.strip() in {"close tab", "close this tab"}:
+            elif (
+                "close current tab" in lower
+                or "close the current tab" in lower
+                or lower.strip() in {"close tab", "close this tab"}
+            ):
                 plan.append({"tool": "closeTab", "args": {}})
-            elif "close current window" in lower or lower.strip() in {"close window", "close this window"}:
+            elif "close current window" in lower or lower.strip() in {
+                "close window",
+                "close this window",
+            }:
                 plan.append({"tool": "closeWindow", "args": {}})
-            elif "submit the form" in lower or "submit form" in lower or (lower.startswith("submit ") and " form" in lower):
+            elif (
+                "submit the form" in lower
+                or "submit form" in lower
+                or (lower.startswith("submit ") and " form" in lower)
+            ):
                 # Fall back to Enter key for generic form submit
                 plan.append({"tool": "press", "args": {"key": "Enter"}})
             elif lower.startswith(("assert ", "check ", "verify ")):
@@ -313,7 +343,12 @@ class EngineOrchestrator(IOrchestrator):
                     if m:
                         expected = m.group(1).strip(" .'\"")
                     if expected:
-                        plan.append({"tool": "assertUrl", "args": {"expected": expected, "match": "contains"}})
+                        plan.append(
+                            {
+                                "tool": "assertUrl",
+                                "args": {"expected": expected, "match": "contains"},
+                            }
+                        )
                 elif "'" in text or '"' in text:
                     m = re.search(r"'([^']+)'", text)
                     if not m:
@@ -339,7 +374,12 @@ class EngineOrchestrator(IOrchestrator):
                 elif "right" in lower:
                     direction = "right"
                 amount = 400
-                plan.append({"tool": "scroll", "args": {"direction": direction, "amount": amount}})
+                plan.append(
+                    {
+                        "tool": "scroll",
+                        "args": {"direction": direction, "amount": amount},
+                    }
+                )
             elif lower.startswith("download "):
                 label = text.split(" ", 1)[1].strip()
                 plan.append({"tool": "download", "args": {"target": {"text": label}}})
@@ -348,10 +388,28 @@ class EngineOrchestrator(IOrchestrator):
                 # Prefer structured CSS target when user specifies CSS-y strings
                 css_like = False
                 try:
-                    if raw.startswith("#") or raw.startswith(".") or raw.startswith("["):
+                    if (
+                        raw.startswith("#")
+                        or raw.startswith(".")
+                        or raw.startswith("[")
+                    ):
                         css_like = True
                     # common tag selectors and attribute selectors
-                    elif raw.split("(")[0].lower().startswith(("input", "button", "a", "label", "form", "textarea", "select")):
+                    elif (
+                        raw.split("(")[0]
+                        .lower()
+                        .startswith(
+                            (
+                                "input",
+                                "button",
+                                "a",
+                                "label",
+                                "form",
+                                "textarea",
+                                "select",
+                            )
+                        )
+                    ):
                         css_like = True
                     elif "[" in raw or ":" in raw or ">" in raw or "=" in raw:
                         css_like = True
@@ -361,7 +419,12 @@ class EngineOrchestrator(IOrchestrator):
                 plan.append({"tool": "click", "args": {"target": target}})
             elif lower.startswith("type "):
                 typed = text.split(" ", 1)[1].strip()
-                plan.append({"tool": "type", "args": {"target": {"text": "input"}, "text": typed}})
+                plan.append(
+                    {
+                        "tool": "type",
+                        "args": {"target": {"text": "input"}, "text": typed},
+                    }
+                )
             elif lower.startswith("press "):
                 key_raw = text.split(" ", 1)[1].strip()
                 try:
@@ -441,7 +504,7 @@ class EngineOrchestrator(IOrchestrator):
                 self._storage.finish_run(run_id, stats)
         except Exception:
             pass
-        if (run_logger or self._log):
+        if run_logger or self._log:
             extra = {"planner": planner_path, "planner_fallbacks": fallback_count}
             try:
                 if getattr(self._settings, "SBOM_REF", None):

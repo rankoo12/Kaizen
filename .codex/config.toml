@@ -1,0 +1,27 @@
+# ~/.codex/config.toml
+
+# --- Core behavior ---
+model = "gpt-5.1"          # default codex model for API users
+model_reasoning_effort = "high"  # better plans, a bit slower
+approval_policy = "untrusted"    # always ask before running real commands
+sandbox_mode = "workspace-write" # only write inside the project, restricted FS
+preferred_auth_method = "chatgpt" # use your ChatGPT login for Codex
+
+# Keep responses fairly compact but not too short
+model_verbosity = "medium"
+
+# Only pass minimal env so secrets don’t leak
+[shell_environment_policy]
+include_only = ["PATH", "HOME"]
+
+# Enable web search tool if you like (you can toggle later)
+[tools]
+web_search = true
+
+# Optional: mark specific repos as "trusted" once you’re comfortable
+[projects."C:\Rankoo12\Kaizen\Kaizen"]
+trust_level = "trusted"
+
+
+# Show reasoning when available (nice for debugging what Codex is thinking)
+show_raw_agent_reasoning = true

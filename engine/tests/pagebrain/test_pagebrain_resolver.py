@@ -29,7 +29,7 @@ class OkHandler(IActionHandler):
 def test_pagebrain_resolver_stores_metadata():
     r = PageBrainResolver(browser=EvalBrowser())
     out = r.find({"text": "small size"})
-    assert isinstance(out, list) and len(out) == 1
+    assert isinstance(out, list) and len(out) >= 1
     sel = out[0]
     assert isinstance(sel, dict) and sel.get("type") == "css"
     meta = r.get_last_pagebrain()

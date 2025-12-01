@@ -160,16 +160,93 @@ def _evaluate_predictions(bounds: List[Tuple[int, int, int]], preds: List[float]
     }
 
 
-def train_gbm(train: List[Dict[str, Any]], dev: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Train a simple GBM ranker when lightgbm is available; fallback to baseline otherwise."""
+def _baseline_weights() -> Dict[str, float]:
+    """Heuristic fallback weights roughly aligned with _score_candidate."""
+    w: Dict[str, float] = {
+        "rank": -1.0,          # lower rank index is better
+        "selector_len": -0.01, # shorter selectors are nicer
+        "has_id": 0.5,
+        "has_class": 0.1,
+        "has_attr": 0.1,
+        "num_desc": -0.05,
+        "visible": 0.5,
+        "enabled": 0.3,
+        "type_is_css": 0.1,
+        "type_is_xpath": -0.2,
+    }
+    return w
+
+
+def _signed_feature_importance(
+    train_X: List[List[float]], train_y: List[int], importances: List[float]
+) -> Dict[str, float]:
+    """Convert raw feature importances into signed linear weights.
+
+    We approximate the direction by comparing the mean feature value for
+    positive vs negative labels; if mean_pos > mean_neg the weight is
+    positive, else negative. This is a simple heuristic but gives a
+    reasonable sign for our runtime linear scorer.
+    """
+    n_features = len(FEATURE_KEYS)
+    if len(importances) < n_features:
+        importances = list(importances) + [0.0] * (n_features - len(importances))
+
+    sums_pos = [0.0] * n_features
+    sums_neg = [0.0] * n_features
+    count_pos = 0
+    count_neg = 0
+    for row, lab in zip(train_X, train_y):
+        if lab == 1:
+            count_pos += 1
+            for i, v in enumerate(row):
+                sums_pos[i] += float(v)
+        else:
+            count_neg += 1
+            for i, v in enumerate(row):
+                sums_neg[i] += float(v)
+
+    weights: Dict[str, float] = {}
+    for idx, key in enumerate(FEATURE_KEYS):
+        base = float(importances[idx] or 0.0)
+        if count_pos and count_neg:
+            mean_pos = sums_pos[idx] / count_pos
+            mean_neg = sums_neg[idx] / count_neg
+            if mean_pos > mean_neg:
+                sign = 1.0
+            elif mean_pos < mean_neg:
+                sign = -1.0
+            else:
+                sign = 0.0
+        else:
+            sign = 1.0
+        weights[key] = base * sign
+
+    # Normalize so the largest absolute weight is 1.0
+    max_abs = max((abs(v) for v in weights.values()), default=0.0)
+    if max_abs <= 0.0:
+        return _baseline_weights()
+    for k in list(weights.keys()):
+        weights[k] = weights[k] / max_abs
+    return weights
+
+
+def train_gbm(
+    train: List[Dict[str, Any]], dev: List[Dict[str, Any]]
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, float]]:
+    """Train a simple GBM ranker when lightgbm is available; fallback to baseline otherwise.
+
+    Returns (train_metrics, dev_metrics, weights) where weights is a
+    FEATURE_KEYS->float mapping suitable for use by PageBrainResolver.
+    """
     train_X, train_y, train_bounds = _build_dataset(train)
     dev_X, dev_y, dev_bounds = _build_dataset(dev)
     if not train_X or not dev_X:
-        return evaluate_baseline(train), evaluate_baseline(dev)
+        # No usable data: fall back to baseline metrics + baseline weights
+        return evaluate_baseline(train), evaluate_baseline(dev), _baseline_weights()
     try:
         import lightgbm as lgb  # type: ignore
     except Exception:
-        return evaluate_baseline(train), evaluate_baseline(dev)
+        return evaluate_baseline(train), evaluate_baseline(dev), _baseline_weights()
 
     train_data = lgb.Dataset(train_X, label=train_y)
     params = {
@@ -182,16 +259,26 @@ def train_gbm(train: List[Dict[str, Any]], dev: List[Dict[str, Any]]) -> Tuple[D
     model = lgb.train(params, train_data, num_boost_round=50)
     train_preds = model.predict(train_X)
     dev_preds = model.predict(dev_X)
-    return _evaluate_predictions(train_bounds, train_preds), _evaluate_predictions(dev_bounds, dev_preds)
+    try:
+        importances = model.feature_importance(importance_type="gain")
+    except Exception:
+        importances = [1.0] * len(FEATURE_KEYS)
+    weights = _signed_feature_importance(train_X, train_y, list(importances))
+    return (
+        _evaluate_predictions(train_bounds, train_preds),
+        _evaluate_predictions(dev_bounds, dev_preds),
+        weights,
+    )
 
 
 def train_and_eval(train_path: Path, dev_path: Path) -> Dict[str, Any]:
     train = _load_jsonl(train_path)
     dev = _load_jsonl(dev_path)
-    train_metrics, dev_metrics = train_gbm(train, dev)
+    train_metrics, dev_metrics, weights = train_gbm(train, dev)
     return {
         "train": train_metrics,
         "dev": dev_metrics,
+        "weights": weights,
     }
 
 
@@ -209,6 +296,7 @@ def compute_lift(train_path: Path, dev_path: Path) -> Dict[str, Any]:
     metrics = train_and_eval(train_path, dev_path)
     train_metrics = metrics.get("train", {})
     dev_metrics = metrics.get("dev", {})
+    weights = metrics.get("weights") or {}
     lift: Dict[str, float] = {}
     for key in ("top1_accuracy", "topk_accuracy", "mrr"):
         try:
@@ -220,4 +308,5 @@ def compute_lift(train_path: Path, dev_path: Path) -> Dict[str, Any]:
         "train": train_metrics,
         "dev": dev_metrics,
         "lift": lift,
+        "weights": weights,
     }

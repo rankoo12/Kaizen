@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "reports"
@@ -54,6 +55,11 @@ def main() -> int:
     src = REPORTS / "pagebrain_dataset.jsonl"
     raw = _load(src)
     curated = []
+    only_human = str(os.environ.get("PAGEBRAIN_ONLY_HUMAN", "")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     for ex in raw:
         if not ex.get("ok"):
             continue
@@ -63,6 +69,10 @@ def main() -> int:
         candidates = ex.get("candidates") or []
         if not isinstance(candidates, list) or not candidates:
             continue
+        if only_human:
+            src_lbl = (ex.get("label_source") or "").strip().lower()
+            if src_lbl not in {"human_passed", "fixture_truth"}:
+                continue
         curated.append(ex)
 
     train = []

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import json
 import re
 
@@ -124,7 +124,7 @@ def _detect_media_type(path: Path) -> Tuple[str, bool]:
     return "application/octet-stream", False
 
 
-@router.get("/runs/{run_id}/artifacts/{name}")
+@router.get("/runs/{run_id}/artifacts/{name:path}")
 def get_artifact(request: Request, run_id: str, name: str):
     _authorize_access(request, run_id)
     store = get_store_from_settings(settings)

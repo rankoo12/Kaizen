@@ -48,6 +48,8 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
             "target_signature": rec.get("target_signature"),
             "pagebrain": rec.get("pagebrain") or {},
             "healer": rec.get("healer") or {},
+            # Optional per-action artifacts (e.g. screenshots) when present
+            "artifacts": rec.get("artifacts") or {},
         }
         out["executor"] = {
             "status": exec_status,
@@ -286,7 +288,115 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         except Exception:
             actions = []
 
+        # Best-effort join of human annotations per action (when storage supports it)
+        try:
+            st = getattr(orchestrator, "_storage", None)  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        annotations_by_index: Dict[int, Dict[str, Any]] = {}
+        try:
+            if st is not None and hasattr(st, "get_run_action_annotations"):
+                rows = st.get_run_action_annotations(str(run_id))  # type: ignore[attr-defined]
+                for ann in rows or []:
+                    idx = ann.get("action_index")
+                    if isinstance(idx, int) and idx not in annotations_by_index:
+                        annotations_by_index[idx] = ann
+        except Exception:
+            annotations_by_index = {}
+        for act in actions:
+            idx = act.get("action_index")
+            if isinstance(idx, int) and idx in annotations_by_index:
+                ann = annotations_by_index[idx]
+                act["annotation"] = {
+                    "label": ann.get("label"),
+                    "source": ann.get("source"),
+                    "notes": ann.get("notes"),
+                    "user_id": ann.get("user_id"),
+                }
+
         return {"run": base, "actions": actions}
+
+    @router.get("/runs/{run_id}/annotations")
+    async def get_run_annotations(run_id: str):
+        """Return stored human/ML annotations for a run, when available."""
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        if st is not None and hasattr(st, "get_run_action_annotations"):
+            try:
+                rows = st.get_run_action_annotations(str(run_id))  # type: ignore[attr-defined]
+                return {"run_id": run_id, "annotations": rows or []}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"annotations error: {e!s}")
+        # Fallback when storage does not support annotations
+        return {"run_id": run_id, "annotations": []}
+
+    @router.post("/runs/{run_id}/annotations")
+    async def add_run_annotation(run_id: str, body: Dict[str, Any]):
+        """Create or update an annotation for a specific action within a run.
+
+        Body expects:
+          - action_index: int
+          - label: "passed" | "failed" (or arbitrary string)
+          - source: optional, defaults to "human_truth"
+          - notes: optional free-text
+          - selector/tool/target_signature/domain: optional, for PageBrain feedback
+        """
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=422, detail="invalid payload")
+        action_index = body.get("action_index")
+        try:
+            action_index = int(action_index)
+        except Exception:
+            raise HTTPException(status_code=422, detail="action_index must be an integer")
+        label = body.get("label")
+        if not isinstance(label, str) or not label:
+            raise HTTPException(status_code=422, detail="label is required")
+        source = body.get("source") or "human_truth"
+        notes = body.get("notes")
+        if notes is not None and not isinstance(notes, str):
+            try:
+                notes = str(notes)
+            except Exception:
+                notes = None
+        # Optional extra fields used for PageBrain feedback
+        selector = body.get("selector")
+        tool = body.get("tool")
+        target_signature = body.get("target_signature")
+        domain = body.get("domain")
+
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        ann: Dict[str, Any] | None = None
+        if st is not None and hasattr(st, "save_run_action_annotation"):
+            try:
+                ann = st.save_run_action_annotation(  # type: ignore[attr-defined]
+                    run_id=str(run_id),
+                    action_index=int(action_index),
+                    label=str(label),
+                    source=str(source),
+                    notes=notes,
+                    user_id=None,
+                    selector=selector if isinstance(selector, dict) else None,
+                    domain=str(domain) if isinstance(domain, str) else None,
+                    tool=str(tool) if isinstance(tool, str) else None,
+                    target_signature=target_signature if isinstance(target_signature, dict) else None,
+                )
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"annotation error: {e!s}")
+        if ann is None:
+            # In environments without storage support, echo a minimal annotation
+            ann = {
+                "run_id": str(run_id),
+                "action_index": int(action_index),
+                "label": str(label),
+                "source": str(source),
+                "notes": notes,
+            }
+        return ann
 
     @router.post("/runs/{run_id}/finish")
     async def finish_run(run_id: str, body: Dict[str, Any]):

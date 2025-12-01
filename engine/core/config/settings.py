@@ -1,6 +1,6 @@
 # engine/core/config/settings.py
 from pathlib import Path
-from typing import Literal, List
+from typing import Literal, List, Any
 from pydantic import Field, ConfigDict, model_validator
 from pydantic_settings import BaseSettings
 
@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     )
 
     # Healing toggle (deterministic heuristics only)
-    HEALER_ENABLED: bool = Field(default=False, description="Enable deterministic selector healing")
+    HEALER_ENABLED: bool = Field(
+        default=False, description="Enable deterministic selector healing"
+    )
 
     # Healer path: deterministic heuristics or llm proposals
     HEALER_PATH: Literal["deterministic", "llm"] = Field(default="deterministic")
@@ -53,8 +55,13 @@ class Settings(BaseSettings):
     EXEC_TIMEOUT_MS: int | None = Field(default=None)
 
     # Optional hard caps (ms)
-    RUN_TIMEOUT_MS: int | None = Field(default=None, description="Abort a run after this many milliseconds")
-    EXEC_STEP_TIMEOUT_MS: int | None = Field(default=None, description="Per-step soft timeout (currently applied to resolve phase only)")
+    RUN_TIMEOUT_MS: int | None = Field(
+        default=None, description="Abort a run after this many milliseconds"
+    )
+    EXEC_STEP_TIMEOUT_MS: int | None = Field(
+        default=None,
+        description="Per-step soft timeout (currently applied to resolve phase only)",
+    )
 
     # SBOM reference identifier (if available) to tag run logs/metrics
     SBOM_REF: str | None = Field(default=None)
@@ -64,20 +71,34 @@ class Settings(BaseSettings):
     REPORTER_RESYNC_ON_START: bool = Field(default=False)
 
     # Storage (Postgres)
-    PG_DSN: str | None = Field(default=None, description="Postgres DSN, e.g. postgresql+psycopg://user:pass@host:5432/db")
+    PG_DSN: str | None = Field(
+        default=None,
+        description="Postgres DSN, e.g. postgresql+psycopg://user:pass@host:5432/db",
+    )
     STORAGE_BACKEND: Literal["auto", "in_memory", "postgres"] = Field(default="auto")
 
     # LLM planner (disabled by default)
-    LLM_ENABLED: bool = Field(default=False, description="Enable LLM planner/preview endpoints")
-    OLLAMA_BASE_URL: str = Field(default="http://ollama:11434", description="Ollama base URL")
+    LLM_ENABLED: bool = Field(
+        default=False, description="Enable LLM planner/preview endpoints"
+    )
+    OLLAMA_BASE_URL: str = Field(
+        default="http://ollama:11434", description="Ollama base URL"
+    )
     OLLAMA_MODEL: str = Field(default="llama3.1", description="Ollama model name")
-    LLM_TIMEOUT_SECONDS: float = Field(default=10.0, description="Timeout for LLM calls (seconds)")
-    LLM_MAX_TOKENS: int = Field(default=256, description="Max tokens to generate for LLM responses")
-    LLM_TEMPERATURE: float = Field(default=0.2, description="LLM sampling temperature (0..1)")
+    LLM_TIMEOUT_SECONDS: float = Field(
+        default=10.0, description="Timeout for LLM calls (seconds)"
+    )
+    LLM_MAX_TOKENS: int = Field(
+        default=256, description="Max tokens to generate for LLM responses"
+    )
+    LLM_TEMPERATURE: float = Field(
+        default=0.2, description="LLM sampling temperature (0..1)"
+    )
 
     # Planner preview guardrails (rate limit + input caps)
     PREVIEW_RATE_WINDOW_SEC: int = Field(
-        default=60, description="Rate limit window size in seconds for /api/plan/preview"
+        default=60,
+        description="Rate limit window size in seconds for /api/plan/preview",
     )
     PREVIEW_RATE_MAX_REQUESTS: int = Field(
         default=30, description="Max requests per window per key for /api/plan/preview"
@@ -86,7 +107,8 @@ class Settings(BaseSettings):
         default=500, description="Max characters allowed in 'text' for plan preview"
     )
     PREVIEW_CONTEXT_HTML_MAX_CHARS: int = Field(
-        default=4000, description="Max characters of HTML context allowed in plan preview"
+        default=4000,
+        description="Max characters of HTML context allowed in plan preview",
     )
 
     # Multitenancy and admin
@@ -95,7 +117,8 @@ class Settings(BaseSettings):
         description="Require API key and enforce tenant isolation on queue/state APIs",
     )
     ADMIN_SECRET: str | None = Field(
-        default=None, description="Shared secret for admin endpoints via X-Admin-Secret header"
+        default=None,
+        description="Shared secret for admin endpoints via X-Admin-Secret header",
     )
 
     # Artifacts storage
@@ -117,24 +140,44 @@ class Settings(BaseSettings):
     )
 
     # Retrieval/privacy and caching
-    LLM_CACHE_ENABLED: bool = Field(default=True, description="Enable LLM response cache")
+    LLM_CACHE_ENABLED: bool = Field(
+        default=True, description="Enable LLM response cache"
+    )
     LLM_CACHE_TTL_SEC: int = Field(default=600, description="LLM cache TTL in seconds")
     RETRIEVAL_SAVE_ON_SUCCESS: bool = Field(
-        default=True, description="Persist embedding+selector mapping on successful actions"
+        default=True,
+        description="Persist embedding+selector mapping on successful actions",
     )
     RETRIEVAL_GLOBAL_OPT_IN: bool = Field(
-        default=False, description="Allow cross-tenant retrieval when multitenancy is not enforced"
+        default=False,
+        description="Allow cross-tenant retrieval when multitenancy is not enforced",
     )
     RETRIEVAL_EMBED_MODE: Literal["hash", "sbert"] = Field(
         default="hash", description="Embedding backend for retrieval (hash|sbert)"
     )
-    RETRIEVAL_EMBED_DIM: int = Field(default=64, description="Embedding dimension for retrieval vectors")
+    RETRIEVAL_EMBED_DIM: int = Field(
+        default=64, description="Embedding dimension for retrieval vectors"
+    )
     RETRIEVAL_EMBED_CACHE_MAX: int = Field(
         default=1024, description="Max distinct signatures cached in embedder"
     )
     RETRIEVAL_MAX_ROWS: int | None = Field(
         default=None,
         description="Optional hard cap on retrieval_embeddings rows (oldest pruned first)",
+    )
+
+    # PageBrain model selection (optional, env-driven)
+    PAGEBRAIN_DEFAULT_MODEL: str | None = Field(
+        default=None,
+        description="Default PageBrain model id to use when no tenant override is set",
+    )
+    PAGEBRAIN_MODELS: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional mapping of model_id -> metadata or weights reference for PageBrain",
+    )
+    PAGEBRAIN_TENANT_MODELS: dict[str, str] | None = Field(
+        default=None,
+        description="Optional mapping of tenant_id -> model_id for PageBrain model overrides",
     )
 
     @model_validator(mode="before")
@@ -152,6 +195,7 @@ class Settings(BaseSettings):
             s = data["ALLOWED_URL_SCHEMES"].strip()
             data["ALLOWED_URL_SCHEMES"] = [s] if s else []
         return data
+
     model_config = ConfigDict(env_prefix="KAIZEN_")
 
 

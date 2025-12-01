@@ -246,53 +246,67 @@ class ElementResolver:
                                 s += 2
                         return s
 
-                    best = None
-                    best_s = -1.0
+                    scored: list[tuple[dict, float]] = []
                     for c in catalog:
                         try:
                             sc = _score(c)
-                            if sc > best_s:
-                                best_s = sc
-                                best = c
                         except Exception:
                             continue
-                    if best and best_s >= 0:
-                        # Build selector from best candidate
-                        tag = (best.get("tag") or "*").lower()
-                        sel = None
-                        if isinstance(best.get("testid"), str) and best.get("testid"):
-                            sel = f"[data-testid=\"{best.get('testid')}\"]"
-                        elif isinstance(best.get("id"), str) and best.get("id"):
-                            sel = f"#{best.get('id')}"
-                        elif (best.get("labels") and tag in ("input", "select", "textarea") and isinstance(norm, str) and norm):
-                            try:
-                                lab = str((best.get("labels") or [""])[0]).strip()
-                            except Exception:
-                                lab = norm
-                            sel = f'label:has-text("{lab}") {tag}'
-                        elif isinstance(best.get("name"), str) and best.get("name"):
-                            sel = f"{tag}[name=\"{best.get('name')}\"]"
-                        elif isinstance(best.get("ariaLabel"), str) and best.get("ariaLabel"):
-                            sel = f"{tag}[aria-label=\"{best.get('ariaLabel')}\"]"
-                        elif isinstance(best.get("placeholder"), str) and best.get("placeholder"):
-                            sel = f"{tag}[placeholder=\"{best.get('placeholder')}\"]"
-                        elif tag == "input" and best.get("type") in ("radio", "checkbox") and isinstance(norm, str) and norm:
-                            import json as _json
-                            sel = f"input[type=\"{best.get('type')}\"][value*={_json.dumps(norm)} i]"
-                        elif tag in ("button", "a") and isinstance(norm, str) and norm:
-                            sel = f"{tag}:has-text(\"{norm}\")"
-                        else:
-                            sel = tag or "*"
-                        return [
-                            {
-                                "type": "css",
-                                "value": sel,
-                                "visible": bool(best.get("visible", True)),
-                                "enabled": bool(best.get("enabled", True)),
-                                "tag": best.get("tag") or "*",
-                                "classes": best.get("classes") or [],
-                            }
-                        ]
+                        if sc < 0.0:
+                            # Skip invisible/disabled or clearly bad candidates
+                            continue
+                        scored.append((c, sc))
+                    if scored:
+                        # Sort by descending score and take the top few so that
+                        # PageBrain and the healer can see alternatives.
+                        scored.sort(key=lambda t: t[1], reverse=True)
+                        top = scored[:5]
+                        candidates: list[dict] = []
+                        seen_selectors: set[str] = set()
+                        for cand, _ in top:
+                            tag = (cand.get("tag") or "*").lower()
+                            sel = None
+                            if isinstance(cand.get("testid"), str) and cand.get("testid"):
+                                sel = f"[data-testid=\"{cand.get('testid')}\"]"
+                            elif isinstance(cand.get("id"), str) and cand.get("id"):
+                                sel = f"#{cand.get('id')}"
+                            elif (cand.get("labels") and tag in ("input", "select", "textarea") and isinstance(norm, str) and norm):
+                                try:
+                                    lab = str((cand.get("labels") or [""])[0]).strip()
+                                except Exception:
+                                    lab = norm
+                                sel = f'label:has-text("{lab}") {tag}'
+                            elif isinstance(cand.get("name"), str) and cand.get("name"):
+                                sel = f"{tag}[name=\"{cand.get('name')}\"]"
+                            elif isinstance(cand.get("ariaLabel"), str) and cand.get("ariaLabel"):
+                                sel = f"{tag}[aria-label=\"{cand.get('ariaLabel')}\"]"
+                            elif isinstance(cand.get("placeholder"), str) and cand.get("placeholder"):
+                                sel = f"{tag}[placeholder=\"{cand.get('placeholder')}\"]"
+                            elif tag == "input" and cand.get("type") in ("radio", "checkbox") and isinstance(norm, str) and norm:
+                                import json as _json
+                                sel = f"input[type=\"{cand.get('type')}\"][value*={_json.dumps(norm)} i]"
+                            elif tag in ("button", "a") and isinstance(norm, str) and norm:
+                                sel = f"{tag}:has-text(\"{norm}\")"
+                            else:
+                                sel = tag or "*"
+                            if not isinstance(sel, str) or not sel:
+                                continue
+                            if sel in seen_selectors:
+                                # Avoid emitting exact duplicates
+                                continue
+                            seen_selectors.add(sel)
+                            candidates.append(
+                                {
+                                    "type": "css",
+                                    "value": sel,
+                                    "visible": bool(cand.get("visible", True)),
+                                    "enabled": bool(cand.get("enabled", True)),
+                                    "tag": cand.get("tag") or "*",
+                                    "classes": cand.get("classes") or [],
+                                }
+                            )
+                        if candidates:
+                            return candidates
         except Exception:
             pass
 
