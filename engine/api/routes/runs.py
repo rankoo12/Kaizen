@@ -82,6 +82,31 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         # Prefer in-memory reporter which has richer rollups
         try:
             all_runs = list(getattr(rep, "_runs", []) or [])
+            # Include currently running runs from reporter._open so callers
+            # can see in-flight executions. These entries will disappear once
+            # on_run_finish moves them into _runs.
+            try:
+                open_runs = list(getattr(rep, "_open", {}).values() or [])
+            except Exception:
+                open_runs = []
+            for cur in open_runs:
+                try:
+                    rid = cur.get("run_id")
+                except Exception:
+                    rid = None
+                if not rid:
+                    continue
+                all_runs.append(
+                    {
+                        "run_id": rid,
+                        "mode": cur.get("mode"),
+                        "started": cur.get("started"),
+                        "stats": {},
+                        "by_tool": cur.get("by_tool", {}),
+                        "fields": cur.get("fields", {}),
+                        "status": "running",
+                    }
+                )
             # sort desc by started if present
             try:
                 all_runs.sort(key=lambda r: float(r.get("started", 0) or 0), reverse=True)
@@ -109,16 +134,24 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
             else:
                 total = len(all_runs)
                 window = all_runs[offset : offset + limit]
-            runs = [
-                {
+            runs = []
+            for r in window:
+                item = {
                     "run_id": r.get("run_id"),
                     "mode": r.get("mode"),
                     "started": r.get("started"),
                     "stats": r.get("stats", {}),
                     "by_tool": r.get("by_tool", {}),
+                    "fields": r.get("fields", {}),
                 }
-                for r in window
-            ]
+                # Optional timing hints captured by the reporter
+                if "finished" in r:
+                    item["finished"] = r.get("finished")
+                if "duration" in r:
+                    item["duration"] = r.get("duration")
+                if "status" in r:
+                    item["status"] = r.get("status")
+                runs.append(item)
             return {"runs": runs, "total": total, "offset": offset, "limit": limit}
         except Exception:
             runs = []
@@ -188,6 +221,13 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                                     "started": float(row[2]) if row[2] is not None else None,
                                     "stats": row[4] or {},
                                     "by_tool": {},
+                                    "fields": {},
+                                    "finished": float(row[3]) if row[3] is not None else None,
+                                    "duration": (
+                                        (float(row[3]) - float(row[2]))
+                                        if row[3] is not None and row[2] is not None
+                                        else None
+                                    ),
                                 }
                             )
                 return {"runs": out, "total": len(out), "offset": offset, "limit": limit}

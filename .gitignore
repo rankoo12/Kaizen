@@ -228,3 +228,7 @@ snapshots/
 # Local DB logs/dumps
 *.sql
 *.dump
+
+# Node / frontend dependencies
+node_modules/
+portal/frontend/node_modules/
