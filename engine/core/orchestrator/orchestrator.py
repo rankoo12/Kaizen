@@ -181,8 +181,16 @@ class EngineOrchestrator(IOrchestrator):
         if isinstance(spec, dict):
             # Prefer contract-style id, then name; fall back to "unknown"
             test_id = str(spec.get("id") or spec.get("name") or "unknown")
+            # Optional per-run metadata for the reporter (e.g. suite_id)
+            extra_fields = {}
+            try:
+                if isinstance(spec.get("fields"), dict):
+                    extra_fields = dict(spec["fields"])  # type: ignore[arg-type]
+            except Exception:
+                extra_fields = {}
         else:
             test_id = getattr(spec, "id", "unknown")
+            extra_fields = {}
         if hasattr(self._storage, "start_run"):
             run_id = self._storage.start_run(test_id=test_id)
         else:
@@ -219,6 +227,7 @@ class EngineOrchestrator(IOrchestrator):
                 planner_fallbacks=0,
                 healer="none",
                 heal_attempts=0,
+                **extra_fields,
             )
 
         # Build a minimal deterministic plan: open a safe URL first

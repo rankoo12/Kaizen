@@ -218,10 +218,20 @@ class InMemoryRunReporter(IReporter):
                         _OTEL_RUNS_FAILED.add(1, attributes=attrs)
             except Exception:
                 pass
-        payload = {"run_id": run_id, "stats": dict(stats or {})}
+        finished = time.time()
+        payload = {
+            "run_id": run_id,
+            "stats": dict(stats or {}),
+            "finished": finished,
+        }
         if cur is not None:
             payload["mode"] = cur.get("mode")
             payload["started"] = cur.get("started")
+            try:
+                if isinstance(cur.get("started"), (int, float)):
+                    payload["duration"] = float(finished) - float(cur["started"])  # type: ignore[arg-type]
+            except Exception:
+                pass
             # convert nested defaultdicts to plain dicts
             by_tool = {t: dict(rc) for t, rc in cur["by_tool"].items()}
             payload["by_tool"] = by_tool

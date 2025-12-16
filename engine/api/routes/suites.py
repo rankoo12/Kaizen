@@ -59,6 +59,70 @@ def register_suite_routes(app: FastAPI, orchestrator) -> None:
             _SUITES[str(suite_id)] = spec
         return {"suite_id": str(suite_id)}
 
+    @router.get("/suites")
+    async def list_suites(request: Request, limit: int = 100, offset: int = 0):
+        """List suites from storage when available, falling back to in-memory store.
+
+        This is primarily used by the Portal to discover tests (which are
+        stored in the suites table via save_suite).
+        """
+        try:
+            st = orchestrator._storage  # type: ignore[attr-defined]
+        except Exception:
+            st = None
+        # Prefer Postgres-backed storage
+        if st is not None and hasattr(st, "_conn"):
+            args: list[Any] = []
+            sql = (
+                "SELECT suite_id, spec, tenant_id, extract(epoch from updated_at) "
+                "FROM suites"
+            )
+            where = []
+            # Optional multitenant enforcement
+            try:
+                from engine.core.config.settings import settings as _settings
+
+                if getattr(_settings, "MULTITENANT_ENFORCED", False) and request is not None:
+                    res = getattr(st, "resolve_tenant", None)
+                    tid = res(request.headers.get("X-API-Key")) if callable(res) else None
+                    if tid is None:
+                        raise HTTPException(status_code=401, detail="unauthorized")
+                    where.append("tenant_id IS NOT DISTINCT FROM %s")
+                    args.append(tid)
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+            if where:
+                sql += " WHERE " + " AND ".join(where)
+            sql += " ORDER BY updated_at DESC LIMIT %s OFFSET %s"
+            args.extend([int(limit), int(offset)])
+            items: list[Dict[str, Any]] = []
+            try:
+                with st._conn() as conn:  # type: ignore[attr-defined]
+                    with conn.cursor() as cur:
+                        cur.execute(sql, tuple(args))
+                        for suite_id, spec, tenant_id, updated_epoch in cur.fetchall():
+                            items.append(
+                                {
+                                    "suite_id": suite_id,
+                                    "spec": spec,
+                                    "tenant_id": tenant_id,
+                                    "updated": float(updated_epoch) if updated_epoch is not None else None,
+                                }
+                            )
+            except HTTPException:
+                raise
+            except Exception:
+                items = []
+            return {"items": items, "limit": limit, "offset": offset}
+        # Fallback: in-memory map
+        mem_items = [
+            {"suite_id": sid, "spec": spec, "tenant_id": None, "updated": None}
+            for sid, spec in _SUITES.items()
+        ]
+        return {"items": mem_items, "limit": limit, "offset": offset}
+
     @router.get("/suites/{suite_id}")
     async def get_suite(request: Request, suite_id: str):
         try:
