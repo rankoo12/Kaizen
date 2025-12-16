@@ -30,6 +30,10 @@ except Exception:
 
 router = APIRouter(prefix="/tests", tags=["tests"])
 
+# Minimal in-memory store so the Portal UI can list
+# tests created via the Portal itself.
+_PORTAL_TESTS: Dict[str, Dict[str, Any]] = {}
+
 
 @router.post("", status_code=201)
 def create_test(request: Request, body: Dict[str, Any] | None = None):
@@ -58,8 +62,58 @@ def create_test(request: Request, body: Dict[str, Any] | None = None):
             data = r.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"portal create test error: {e!s}")
-    test_id = data.get("test_id") or body.get("id")
+    test_id = (data.get("test_id") or body.get("id") or "").__str__()
+    # Cache spec locally so the Tests page can list it
+    try:
+        cached = dict(engine_payload)
+        cached["id"] = test_id
+        _PORTAL_TESTS[test_id] = cached
+    except Exception:
+        pass
     return {"testId": test_id, "engine": data}
+
+
+@router.get("")
+def list_tests() -> Dict[str, Any]:
+    """Return tests known to the Portal.
+
+    Tests are stored in the Engine's suites table via the /api/tests
+    endpoint. For UX, we combine those with any Portal-local tests
+    cached in this process.
+    """
+    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    items: list[Dict[str, Any]] = []
+
+    # Prefer Engine-backed suites list.
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.get(f"{engine_base}/suites", params={"limit": 200})
+            r.raise_for_status()
+            data = r.json()
+            for row in data.get("items") or []:
+                spec = row.get("spec") or {}
+                if not isinstance(spec, dict):
+                    continue
+                # Heuristic: treat rows with "steps" as tests.
+                steps = spec.get("steps") or []
+                if not isinstance(steps, list) or not steps:
+                    continue
+                tid = spec.get("id") or row.get("suite_id")
+                if not tid:
+                    continue
+                spec = dict(spec)
+                spec["id"] = str(tid)
+                items.append(spec)
+    except Exception:
+        # Soft-fail; fall back to portal-local cache only.
+        items = []
+
+    # Merge in Portal-local tests, preferring Engine-backed versions.
+    for tid, spec in _PORTAL_TESTS.items():
+        if not any(str(it.get("id")) == str(tid) for it in items):
+            items.append(dict(spec))
+
+    return {"items": items}
 
 
 ENGINE_API_BASE = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
