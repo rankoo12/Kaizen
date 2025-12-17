@@ -36,6 +36,7 @@ type ActionRun = {
   target_signature?: unknown;
   pagebrain?: PageBrainBlock;
   healer?: HealerBlock;
+  perception?: unknown;
   artifacts?: ActionArtifactMap;
   executor?: ExecutorBlock;
   annotation?: {
