@@ -48,6 +48,7 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
             "target_signature": rec.get("target_signature"),
             "pagebrain": rec.get("pagebrain") or {},
             "healer": rec.get("healer") or {},
+            "perception": rec.get("perception") or {},
             # Optional per-action artifacts (e.g. screenshots) when present
             "artifacts": rec.get("artifacts") or {},
         }

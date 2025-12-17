@@ -53,6 +53,7 @@ from engine.core.resolving.snapshot_resolver import (
     resolve_snapshot as _resolve_snapshot_impl,
 )
 from engine.core.llm.ollama_text import OllamaTextAdapter
+from engine.core.perception import PerceptionLayer
 
 
 # Temporary stub for planner until integrated with real parsing logic
@@ -535,6 +536,7 @@ class Container(containers.DeclarativeContainer):
         settings,
         storage,
     )
+    perception_layer = providers.Factory(PerceptionLayer)
     plan_executor = providers.Factory(
         DeterministicPlanExecutor,
         browser=playwright_browser,
@@ -545,6 +547,7 @@ class Container(containers.DeclarativeContainer):
         settings=settings,
         healer=healer,
         storage=storage,
+        perception_layer=perception_layer,
     )
 
     # Optional LLM adapter for planner preview and future planner path

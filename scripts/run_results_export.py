@@ -62,6 +62,7 @@ def _normalize_action(rec: Dict[str, Any]) -> Dict[str, Any]:
         "target_signature": rec.get("target_signature") or executor.get("signature"),
         "pagebrain": rec.get("pagebrain") or {},
         "healer": rec.get("healer") or {},
+        "perception": rec.get("perception") or {},
     }
     out["executor"] = {
         "status": executor.get("status"),
