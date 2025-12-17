@@ -15,6 +15,7 @@ from engine.core.orchestrator import reasons as R
 from engine.core.config.settings import Settings, settings as _settings
 from engine.core.healing.selector_healer import ISelectorHealer
 from engine.core.llm.text_llm import ILLMText
+from engine.core.perception import IPerceptionLayer
 
 
 class DeterministicPlanExecutor(IPlanExecutor):
@@ -39,6 +40,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         healer: ISelectorHealer | None = None,
         storage: Any | None = None,
         llm: ILLMText | None = None,
+        perception_layer: IPerceptionLayer | None = None,
     ):
         self._browser = browser
         self._handlers = handlers or {}
@@ -55,6 +57,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._profile_hits = 0
         self._profile_misses = 0
         self._run_tenant_id: str | None = None
+        self._perception = perception_layer
 
     def execute(self, plan: Plan, *, ctx: ExecCtx) -> List[StepResult]:
         # reset heal stats per execution
@@ -449,6 +452,32 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         action_artifacts["screenshot_after"] = after_name
                 except Exception:
                     pass
+                # Optional PerceptionLayer: compute deterministic 3-layer diff
+                perception_block = None
+                try:
+                    if self._perception is not None:
+                        from pathlib import Path
+
+                        logs_dir = getattr(_settings, "LOGS_DIR", Path("logs"))
+                        logs_dir.mkdir(parents=True, exist_ok=True)
+                        run_id = getattr(ctx, "run_id", None) or "run"
+                        before_path = logs_dir / f"screenshot-{run_id}-a{idx}-before.png"
+                        after_path = logs_dir / f"screenshot-{run_id}-a{idx}-after.png"
+                        bbox = None
+                        try:
+                            if isinstance(resolved, dict):
+                                bbox = resolved.get("bbox")
+                        except Exception:
+                            bbox = None
+                        perception_block = self._perception.compute(
+                            tool=tool,
+                            before_path=str(before_path) if before_path.exists() else None,
+                            after_path=str(after_path) if after_path.exists() else None,
+                            bbox=bbox if isinstance(bbox, dict) else None,
+                            dom_snapshot_id=None,
+                        )
+                except Exception:
+                    perception_block = None
                 # Emit PageBrain choice event for logging/datasets when available
                 try:
                     if self._log and pagebrain_meta:
@@ -508,6 +537,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                             executor=executor_block,
                             pagebrain=pagebrain_meta,
                             healer=getattr(self, "_last_heal_extra", None),
+                            perception=perception_block,
                             artifacts=action_artifacts or None,
                         )
                 except Exception:
