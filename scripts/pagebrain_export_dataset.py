@@ -234,6 +234,7 @@ def main() -> int:
                 "reason": rec.get("reason"),
                 "target_signature": rec.get("target_signature") or rec.get("executor", {}).get("signature"),
                 "pagebrain": pb,
+                "perception": rec.get("perception") or {},
                 "candidates": candidates,
                 "label": label_idx,
                 "candidate_count": cand_count,

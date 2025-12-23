@@ -244,6 +244,15 @@ class ElementResolver:
                                 s += 2
                             if any(w in ln for w in ("phone", "tel", "mobile")) and c.get("type") == "tel":
                                 s += 2
+                            # Generic "search" queries: strongly prefer text-entry fields
+                            # (input/textarea/combobox) over purely clickable controls.
+                            if "search" in ln:
+                                tag = (c.get("tag") or "").lower()
+                                ctype = (c.get("type") or "").lower()
+                                role = (c.get("role") or "").lower()
+                                if tag in ("input", "textarea") or role in ("combobox", "searchbox"):
+                                    # Boost search boxes so they outrank nearby buttons/icons.
+                                    s += 8
                         return s
 
                     scored: list[tuple[dict, float]] = []
