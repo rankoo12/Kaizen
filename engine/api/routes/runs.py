@@ -288,22 +288,46 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
 
         # Merge reporter + DB (reporter wins on duplicate run_id).
         combined: List[dict] = []
-        seen: set[str] = set()
+        seen: dict[str, dict] = {}
         for item in reporter_items:
             rid = item.get("run_id")
             rid_key = str(rid) if rid is not None else None
             if rid_key and rid_key in seen:
                 continue
             if rid_key:
-                seen.add(rid_key)
+                seen[rid_key] = item
             combined.append(item)
         for item in db_items:
             rid = item.get("run_id")
             rid_key = str(rid) if rid is not None else None
             if rid_key and rid_key in seen:
+                # Backfill fields/stats/timing from DB when reporter is sparse
+                try:
+                    rep = seen.get(rid_key) or {}
+                    rep_fields = rep.get("fields")
+                    db_fields = item.get("fields")
+                    if isinstance(db_fields, dict) and db_fields:
+                        if not isinstance(rep_fields, dict) or not rep_fields:
+                            rep["fields"] = dict(db_fields)
+                        else:
+                            merged_fields = dict(db_fields)
+                            merged_fields.update(rep_fields)
+                            rep["fields"] = merged_fields
+                    if rep.get("started") is None and item.get("started") is not None:
+                        rep["started"] = item.get("started")
+                    if rep.get("finished") is None and item.get("finished") is not None:
+                        rep["finished"] = item.get("finished")
+                    if rep.get("duration") is None and item.get("duration") is not None:
+                        rep["duration"] = item.get("duration")
+                    if (not rep.get("stats")) and item.get("stats"):
+                        rep["stats"] = item.get("stats")
+                    if (not rep.get("mode")) and item.get("mode"):
+                        rep["mode"] = item.get("mode")
+                except Exception:
+                    pass
                 continue
             if rid_key:
-                seen.add(rid_key)
+                seen[rid_key] = item
             combined.append(item)
         try:
             combined.sort(key=lambda r: float(r.get("started", 0) or 0), reverse=True)

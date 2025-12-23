@@ -63,6 +63,72 @@ class PageBrainFinder(ElementResolver):
             return None
         return f"{sel_type}|{sel_value}"
 
+    def _selector_to_css(self, sel_type: str | None, sel_value: str | None) -> str | None:
+        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+            return None
+        t = sel_type.strip().lower()
+        v = sel_value.strip()
+        if not v:
+            return None
+        if t == "css":
+            return v
+        if t == "id":
+            return f"#{v}"
+        if t == "testid":
+            return f'[data-testid="{v}"]'
+        return None
+
+    def _selector_count(self, sel_type: str | None, sel_value: str | None) -> int | None:
+        if self._browser is None:
+            return None
+        css = self._selector_to_css(sel_type, sel_value)
+        if not css:
+            return None
+        try:
+            runner = getattr(self._browser, "run_coro", None)
+            eval_fn = getattr(self._browser, "evaluate", None)
+            if not callable(runner) or not callable(eval_fn):
+                return None
+            import json as _json
+
+            script = f"document.querySelectorAll({_json.dumps(css)}).length"
+            count = runner(eval_fn(script))
+            return int(count) if isinstance(count, (int, float)) else None
+        except Exception:
+            return None
+
+    def _extract_llm_eliminations(self, raw_meta: dict) -> set[int]:
+        eliminated: set[int] = set()
+        try:
+            elim = raw_meta.get("candidate_elimination")
+            if isinstance(elim, list):
+                for item in elim:
+                    if isinstance(item, dict):
+                        idx = item.get("index")
+                        if isinstance(idx, int):
+                            eliminated.add(idx)
+        except Exception:
+            eliminated = set()
+        return eliminated
+
+    def _meets_llm_constraints(self, cand: dict, constraints: dict | None) -> bool:
+        if not isinstance(cand, dict):
+            return False
+        if not isinstance(constraints, dict) or not constraints:
+            return True
+        try:
+            if constraints.get("must_be_visible") and not bool(cand.get("visible", True)):
+                return False
+            if constraints.get("must_be_enabled") and not bool(cand.get("enabled", True)):
+                return False
+            if constraints.get("must_be_unique"):
+                count = self._selector_count(cand.get("type"), cand.get("value"))
+                if count is not None and count != 1:
+                    return False
+        except Exception:
+            return True
+        return True
+
     def _apply_feedback_penalty(self, candidates: List[Any]) -> List[Any]:
         fb = self._selector_feedback or {}
         if not fb or not candidates:
@@ -1081,6 +1147,10 @@ class PageBrainFinder(ElementResolver):
         engine = "fallback_ranker"
         llm_usage: Dict[str, Any] | None = None
         llm_decision: str | None = None
+        llm_raw: Dict[str, Any] | None = None
+        llm_constraints: Dict[str, Any] | None = None
+        llm_eliminations: set[int] = set()
+        llm_suggested_tool: str | None = None
         # LLM usage is decided per-step by the executor (via locked selectors);
         # do not skip LLM globally based on test-level feedback.
         if self._ranker_mode == "llm" and candidates:
@@ -1100,6 +1170,16 @@ class PageBrainFinder(ElementResolver):
                     # Reorder candidates according to the LLM-provided ranking.
                     try:
                         raw_meta = llm_result.raw if isinstance(llm_result.raw, dict) else {}
+                        llm_raw = raw_meta
+                        llm_eliminations = self._extract_llm_eliminations(raw_meta)
+                        if isinstance(raw_meta.get("hard_constraints"), dict):
+                            llm_constraints = raw_meta.get("hard_constraints")
+                        try:
+                            restated = raw_meta.get("restate_task") or {}
+                            if isinstance(restated, dict):
+                                llm_suggested_tool = restated.get("tool")
+                        except Exception:
+                            llm_suggested_tool = None
                         decision_tag = str(raw_meta.get("llm_decision") or "used")
                         model_id = raw_meta.get("model_id")
                         usage = raw_meta.get("usage")
@@ -1113,17 +1193,28 @@ class PageBrainFinder(ElementResolver):
                         if decision_tag.startswith("discarded_"):
                             engine = "fallback_ranker"
                             llm_decision = decision_tag
+                            llm_constraints = None
                         else:
+                            original: List[tuple[int, dict]] = list(enumerate(candidates))
+                            if llm_eliminations and len(llm_eliminations) < len(original):
+                                original = [
+                                    (orig_idx, cand)
+                                    for orig_idx, cand in original
+                                    if orig_idx not in llm_eliminations
+                                ]
                             ordered: List[dict] = []
+                            used_idx: set[int] = set()
                             for idx in llm_result.ranking:
-                                if isinstance(idx, int) and 0 <= idx < len(candidates):
-                                    ordered.append(candidates[idx])
-                            # Keep any remaining candidates in original order.
-                            if len(ordered) < len(candidates):
-                                seen = {id(c) for c in ordered}
-                                for cand in candidates:
-                                    if id(cand) not in seen:
+                                if not isinstance(idx, int):
+                                    continue
+                                for orig_idx, cand in original:
+                                    if orig_idx == idx:
                                         ordered.append(cand)
+                                        used_idx.add(orig_idx)
+                                        break
+                            for orig_idx, cand in original:
+                                if orig_idx not in used_idx:
+                                    ordered.append(cand)
                             candidates = ordered
                             engine = "llm_ranker"
                             llm_decision = decision_tag
@@ -1166,16 +1257,22 @@ class PageBrainFinder(ElementResolver):
                     alt = self._find_clickable_in_row(candidates, chosen_idx)
                     if alt is not None:
                         chosen_idx = alt
+            if chosen_idx is not None:
+                cand = candidates[chosen_idx] if chosen_idx < len(candidates) else None
+                if isinstance(cand, dict) and not self._meets_llm_constraints(cand, llm_constraints):
+                    chosen_idx = None
 
         # Fallback: pick the first visible+enabled candidate when possible.
         if chosen_idx is None:
             for idx, cand in enumerate(candidates):
                 if not isinstance(cand, dict):
                     continue
+                if not self._meets_llm_constraints(cand, llm_constraints):
+                    continue
                 if bool(cand.get("visible", True)) and bool(cand.get("enabled", True)):
                     chosen_idx = idx
                     break
-            if chosen_idx is None and candidates:
+            if chosen_idx is None and candidates and not llm_constraints:
                 chosen_idx = 0
 
         chosen = (
@@ -1216,6 +1313,18 @@ class PageBrainFinder(ElementResolver):
             decision["llm_usage"] = llm_usage
         if llm_decision is not None:
             decision["llm_decision"] = llm_decision
+        if llm_raw:
+            decision["llm"] = {
+                "restate_task": llm_raw.get("restate_task"),
+                "hard_constraints": llm_raw.get("hard_constraints"),
+                "candidate_elimination": llm_raw.get("candidate_elimination"),
+                "ranking": llm_raw.get("ranking"),
+                "scores": llm_raw.get("scores"),
+                "top1_justification": llm_raw.get("top1_justification"),
+                "verification": llm_raw.get("verification"),
+                "needs_more_data": llm_raw.get("needs_more_data"),
+                "suggested_tool": llm_suggested_tool,
+            }
         if isinstance(intent, dict) and intent:
             decision["intent"] = intent
         if chosen is not None and isinstance(chosen, dict):
