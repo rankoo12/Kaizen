@@ -102,6 +102,22 @@ class PlaywrightBrowser(IBrowser):
             except Exception:
                 pass
 
+        # Treat navigation that leaves us on about:blank (or an empty page) as a failure
+        # so callers can abort instead of proceeding with a blank DOM.
+        try:
+            final_url = getattr(self._page, "url", "") or ""
+        except Exception:
+            final_url = ""
+        try:
+            body_len = 0
+            content = await self._page.content()
+            if isinstance(content, str):
+                body_len = len(content.strip())
+        except Exception:
+            body_len = 0
+        if url and str(url).strip() and (final_url.strip() in {"about:blank", ""} or body_len == 0):
+            raise RuntimeError(f"navigation_failed:{final_url or 'blank'}")
+
     async def reload(self):
         try:
             await self._page.reload(wait_until=self._nav_wait)

@@ -109,6 +109,11 @@ def register_test_routes(app: FastAPI, orchestrator) -> None:
 
     @router.post("/tests/{test_id}/runs")
     async def run_test(test_id: str, body: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """
+        Enqueue a test run instead of executing synchronously on the API server.
+
+        This mirrors /api/runs queue-first behavior so the API event loop stays free.
+        """
         body = body or {}
         # Resolve test spec from storage or in-memory map
         test_spec: Dict[str, Any] | None = None
@@ -169,23 +174,40 @@ def register_test_routes(app: FastAPI, orchestrator) -> None:
             test_spec = spec
 
         mode = str(body.get("mode") or "live").lower()
+        payload: Dict[str, Any] = {
+            "mode": mode,
+            "spec": test_spec,
+            "html_path": body.get("html_path"),
+            "html": body.get("html"),
+            "snapshot": body.get("snapshot") or body.get("snapshot_path"),
+            "snapshot_path": body.get("snapshot_path"),
+            "url": body.get("url") or test_spec.get("app_base_url"),
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        job_id: str | None = None
+
+        # Prefer durable queue when available
         try:
-            if mode == "snapshot":
-                run_id = orchestrator.run_snapshot(
-                    test_spec,
-                    html_path=body.get("html_path"),
-                    html=body.get("html"),
-                    snapshot_path=body.get("snapshot") or body.get("snapshot_path"),
-                )
-            else:
-                url = body.get("url") or test_spec.get("app_base_url")
-                if not isinstance(url, str) or not url:
-                    raise HTTPException(status_code=422, detail="url or app_base_url required for live mode")
-                run_id = orchestrator.run_live(test_spec, url=url)
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"run error: {e!s}")
-        return {"run_id": run_id}
+            if st is not None and hasattr(st, "enqueue"):
+                job_id = st.enqueue(payload)  # type: ignore[call-arg]
+        except Exception:
+            job_id = None
+
+        # In-memory queue fallback (shared with /api/queue routes)
+        if not job_id:
+            try:
+                from engine.api.routes import queue as queue_routes
+
+                job_id = f"job-{next(queue_routes._COUNTER)}"
+                job = {"job_id": job_id, **payload}
+                queue_routes._QUEUE.append(job)
+            except Exception:
+                job_id = None
+
+        if not job_id:
+            raise HTTPException(status_code=500, detail="run enqueue failed")
+
+        return {"job_id": job_id, "run_id": None, "status": "queued"}
 
     app.include_router(router)

@@ -168,24 +168,51 @@ def register_suite_routes(app: FastAPI, orchestrator) -> None:
 
     @router.post("/suites/{suite_id}/runs")
     async def run_suite(suite_id: str, body: Dict[str, Any] | None = None):
+        """Enqueue a suite run; do not execute synchronously on the API server."""
         spec = _SUITES.get(str(suite_id))
         if spec is None:
             raise HTTPException(status_code=404, detail="suite not found")
         body = body or {}
         mode = str(body.get("mode") or "snapshot").lower()
+
+        payload: Dict[str, Any] = {
+            "mode": mode,
+            "spec": spec,
+            "html_path": body.get("html_path"),
+            "html": body.get("html"),
+            "snapshot": body.get("snapshot") or body.get("snapshot_path"),
+            "snapshot_path": body.get("snapshot_path"),
+            "url": body.get("url"),
+            # Keep suite context so portal can group runs
+            "fields": {"suite_id": suite_id, "suite_name": spec.get("name") if isinstance(spec, dict) else suite_id},
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+
+        job_id: str | None = None
+
+        # Prefer durable queue when available
         try:
-            if mode == "live":
-                run_id = orchestrator.run_live(spec, url=body.get("url"))
-            else:
-                run_id = orchestrator.run_snapshot(
-                    spec,
-                    html_path=body.get("html_path"),
-                    html=body.get("html"),
-                    snapshot_path=body.get("snapshot") or body.get("snapshot_path"),
-                )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"run error: {e!s}")
-        return {"run_id": run_id}
+            st = getattr(orchestrator, "_storage", None)  # type: ignore[attr-defined]
+            if st is not None and hasattr(st, "enqueue"):
+                job_id = st.enqueue(payload)  # type: ignore[call-arg]
+        except Exception:
+            job_id = None
+
+        # In-memory queue fallback
+        if not job_id:
+            try:
+                from engine.api.routes import queue as queue_routes
+
+                job_id = f"job-{next(queue_routes._COUNTER)}"
+                job = {"job_id": job_id, **payload}
+                queue_routes._QUEUE.append(job)
+            except Exception:
+                job_id = None
+
+        if not job_id:
+            raise HTTPException(status_code=500, detail="run enqueue failed")
+
+        return {"job_id": job_id, "run_id": None, "status": "queued"}
 
     # ---- CRUD verbs ----
 
