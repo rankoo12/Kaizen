@@ -1,6 +1,7 @@
 from typing import Any, Dict, List
 from pathlib import Path
 import json
+import time
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 
@@ -20,6 +21,59 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
     """
 
     router = APIRouter(prefix="/api", tags=["runs"])
+
+    def _enrich_run_item(item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Best-effort enrichment so the portal can render basic info even when
+        reporter data is missing (e.g., runner in another process).
+        """
+        run_id = item.get("run_id")
+        try:
+            # Derive started timestamp from run_id prefix: run-<epoch>-...
+            if (not item.get("started")) and isinstance(run_id, str) and run_id.startswith("run-"):
+                parts = run_id.split("-")
+                if len(parts) >= 3:
+                    ts_part = parts[1]
+                    ts = float(ts_part)
+                    if ts > 0:
+                        item["started"] = ts
+            # Derive test name/id from run_id middle segments when missing
+            fields = item.get("fields") or {}
+            test_name_present = isinstance(fields, dict) and (
+                fields.get("test_name") or fields.get("test_id")
+            )
+            if (not test_name_present) and isinstance(run_id, str):
+                parts = run_id.split("-")
+                if len(parts) >= 4:
+                    candidate = "-".join(parts[2:-1]) or parts[2]
+                    if candidate:
+                        if not isinstance(fields, dict):
+                            fields = {}
+                        fields.setdefault("test_name", candidate)
+                        fields.setdefault("test_id", candidate)
+                        item["fields"] = fields
+            # Derive duration when started/finished are present
+            if item.get("duration") is None:
+                started = item.get("started")
+                finished = item.get("finished")
+                if started and finished:
+                    try:
+                        item["duration"] = float(finished) - float(started)
+                    except Exception:
+                        pass
+            # Set a sensible default mode when missing so the Portal doesn’t show "Unknown"
+            mode = item.get("mode")
+            if not mode:
+                # Prefer any explicit marker in fields
+                fields = item.get("fields") or {}
+                if isinstance(fields, dict) and fields.get("mode"):
+                    item["mode"] = fields.get("mode")
+                else:
+                    # Default to snapshot when not specified
+                    item["mode"] = "snapshot"
+        except Exception:
+            pass
+        return item
 
     def _normalize_action_run(rec: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize raw action.run log entries into ActionRun-like blocks.
@@ -157,11 +211,63 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                     item["duration"] = r.get("duration")
                 if "status" in r:
                     item["status"] = r.get("status")
-                runs.append(item)
+                runs.append(_enrich_run_item(item))
             return {"runs": runs, "total": total, "offset": offset, "limit": limit}
         except Exception:
             if used_reporter:
+                # Reporter is present but has no data (likely running in another process).
+                # Fall through to storage/queue fallbacks below.
+                runs = []
+                total = 0
+            else:
                 return {"runs": [], "total": 0, "offset": offset, "limit": limit}
+
+        # Fallback: reflect queue state (running/completed) when reporter data is not available
+        try:
+            from engine.api.routes import queue as queue_routes
+
+            queue_runs: list[dict] = []
+            now = time.time()
+
+            for rec in (queue_routes._RUNNING or {}).values():  # type: ignore[attr-defined]
+                rid = rec.get("run_id")
+                queue_runs.append(
+                    _enrich_run_item(
+                        {
+                            "run_id": rid or rec.get("job_id"),
+                            "mode": rec.get("mode"),
+                            "started": rec.get("ts") or now,
+                            "status": "running",
+                            "stats": {},
+                            "by_tool": {},
+                            "fields": {"job_id": rec.get("job_id")},
+                        }
+                    )
+                )
+
+            for rec in (queue_routes._COMPLETED or {}).values():  # type: ignore[attr-defined]
+                rid = rec.get("run_id") or rec.get("job_id")
+                ts = rec.get("ts")
+                queue_runs.append(
+                    _enrich_run_item(
+                        {
+                            "run_id": rid,
+                            "mode": rec.get("mode"),
+                            "started": ts,
+                            "finished": ts,
+                            "duration": 0 if ts else None,
+                            "status": "finished",
+                            "stats": {},
+                            "by_tool": {},
+                            "fields": {"job_id": rec.get("job_id")},
+                        }
+                    )
+                )
+
+            if queue_runs:
+                return {"runs": queue_runs[:limit], "total": len(queue_runs), "offset": 0, "limit": limit}
+        except Exception:
+            pass
 
         # Fallback: best-effort DB query when reporter not available
         try:
@@ -221,21 +327,25 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                     with conn.cursor() as cur:
                         cur.execute(sql, tuple(args))
                         for row in cur.fetchall():
+                            status = "running" if row[3] is None else "finished"
                             out.append(
-                                {
-                                    "run_id": row[0],
-                                    "mode": None,
-                                    "started": float(row[2]) if row[2] is not None else None,
-                                    "stats": row[4] or {},
-                                    "by_tool": {},
-                                    "fields": {},
-                                    "finished": float(row[3]) if row[3] is not None else None,
-                                    "duration": (
-                                        (float(row[3]) - float(row[2]))
-                                        if row[3] is not None and row[2] is not None
-                                        else None
-                                    ),
-                                }
+                                _enrich_run_item(
+                                    {
+                                        "run_id": row[0],
+                                        "mode": None,
+                                        "started": float(row[2]) if row[2] is not None else None,
+                                        "stats": row[4] or {},
+                                        "by_tool": {},
+                                        "fields": {},
+                                        "finished": float(row[3]) if row[3] is not None else None,
+                                        "duration": (
+                                            (float(row[3]) - float(row[2]))
+                                            if row[3] is not None and row[2] is not None
+                                            else None
+                                        ),
+                                        "status": status,
+                                    }
+                                )
                             )
                 return {"runs": out, "total": len(out), "offset": offset, "limit": limit}
         except Exception:
@@ -244,24 +354,53 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
 
     @router.post("/runs")
     async def create_run(body: Dict[str, Any]):
+        """
+        Enqueue a run instead of executing synchronously.
+
+        This keeps the API event loop non-blocking and aligns /api/runs with the
+        queue/runner execution model. Returns a job_id (and run_id=None until
+        the runner assigns it).
+        """
         mode = str(body.get("mode") or "snapshot").lower()
-        spec = body.get("spec") or {}
+        # Build a queue payload similar to /api/queue/runs
+        payload: Dict[str, Any] = {
+            "mode": mode,
+            "spec": body.get("spec") or {},
+            "html_path": body.get("html_path"),
+            "html": body.get("html"),
+            "snapshot": body.get("snapshot") or body.get("snapshot_path"),
+            "snapshot_path": body.get("snapshot_path"),
+            "url": body.get("url"),
+        }
+        # Drop empty values to avoid confusing storage adapters
+        payload = {k: v for k, v in payload.items() if v is not None}
 
+        job_id: str | None = None
+
+        # Prefer durable queue when available
         try:
-            if mode == "live":
-                url = body.get("url")
-                run_id = orchestrator.run_live(spec, url=url)
-            else:
-                run_id = orchestrator.run_snapshot(
-                    spec,
-                    html_path=body.get("html_path"),
-                    html=body.get("html"),
-                    snapshot_path=body.get("snapshot") or body.get("snapshot_path"),
-                )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"run error: {e!s}")
+            st = getattr(orchestrator, "_storage", None)  # type: ignore[attr-defined]
+            if st is not None and hasattr(st, "enqueue"):
+                job_id = st.enqueue(payload)  # type: ignore[call-arg]
+        except Exception:
+            job_id = None
 
-        return {"run_id": run_id}
+        # In-memory queue fallback (shared with /api/queue routes)
+        if not job_id:
+            try:
+                from engine.api.routes import queue as queue_routes
+
+                job_id = f"job-{next(queue_routes._COUNTER)}"
+                job = {"job_id": job_id, **payload}
+                # Reuse the same in-memory queue the runner polls via /api/queue/next
+                queue_routes._QUEUE.append(job)
+            except Exception:
+                job_id = None
+
+        if not job_id:
+            raise HTTPException(status_code=500, detail="run enqueue failed")
+
+        return {"job_id": job_id, "run_id": None, "status": "queued"}
 
     @router.get("/runs/{run_id}")
     async def get_run(run_id: str):

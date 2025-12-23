@@ -281,6 +281,9 @@ def register_queue_routes(app: FastAPI) -> None:
             rec = _RUNNING.get(job_id) or {"job_id": job_id}
             if run_id:
                 rec["run_id"] = str(run_id)
+            # Stamp a start time so other endpoints can reflect "running" runs
+            # even when reporter data lives in another process.
+            rec.setdefault("ts", time.time())
             _RUNNING[job_id] = rec
         try:
             print(f"[queue] running: job_id={job_id} run_id={rec.get('run_id')}")
