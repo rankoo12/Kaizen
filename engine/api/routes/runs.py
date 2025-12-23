@@ -132,7 +132,7 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         - "since" filter compares against reporter "started" timestamps when present, or DB started_at.
         """
         rep = reporter_mod.RUN_REPORTER
-        runs: List[dict] = []
+        reporter_items: List[dict] = []
         used_reporter = False
 
         # Prefer in-memory reporter which has richer rollups.
@@ -182,20 +182,8 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                     all_runs = [r for r in all_runs if float(r.get("started", 0) or 0) >= s]
                 except Exception:
                     pass
-            # Cursor-based pagination: if 'after' provided, find its index and start after it
-            if after:
-                try:
-                    idx = next(i for i, r in enumerate(all_runs) if str(r.get("run_id")) == str(after))
-                    start = idx + 1
-                except StopIteration:
-                    start = 0
-                window = all_runs[start : start + limit]
-                total = len(all_runs) - start
-            else:
-                total = len(all_runs)
-                window = all_runs[offset : offset + limit]
-            runs = []
-            for r in window:
+            reporter_items = []
+            for r in all_runs:
                 item = {
                     "run_id": r.get("run_id"),
                     "mode": r.get("mode"),
@@ -211,18 +199,129 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                     item["duration"] = r.get("duration")
                 if "status" in r:
                     item["status"] = r.get("status")
-                runs.append(_enrich_run_item(item))
-            return {"runs": runs, "total": total, "offset": offset, "limit": limit}
+                reporter_items.append(_enrich_run_item(item))
         except Exception:
-            if used_reporter:
-                # Reporter is present but has no data (likely running in another process).
-                # Fall through to storage/queue fallbacks below.
-                runs = []
-                total = 0
-            else:
+            if not used_reporter:
                 return {"runs": [], "total": 0, "offset": offset, "limit": limit}
+            reporter_items = []
 
-        # Fallback: reflect queue state (running/completed) when reporter data is not available
+        # Best-effort DB query to merge persisted runs (skip when mode filter is set).
+        db_items: List[dict] = []
+        if not mode:
+            try:
+                st = orchestrator._storage  # type: ignore[attr-defined]
+                if hasattr(st, "_conn"):
+                    args: list[Any] = []
+                    sql = (
+                        "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats, tenant_id "
+                        "FROM runs"
+                    )
+                    where = []
+                    # Tenant filter when multitenancy is enforced and API key resolves
+                    try:
+                        from engine.core.config.settings import settings as _settings
+                        if getattr(_settings, "MULTITENANT_ENFORCED", False) and request is not None:
+                            resolver = getattr(st, "resolve_tenant", None)
+                            tenant_id = resolver(request.headers.get("X-API-Key")) if callable(resolver) else None
+                            if tenant_id is None:
+                                raise HTTPException(status_code=401, detail="unauthorized")
+                            where.append("tenant_id IS NOT DISTINCT FROM %s")
+                            args.append(tenant_id)
+                    except Exception:
+                        pass
+                    if since is not None:
+                        where.append("started_at >= to_timestamp(%s)")
+                        args.append(float(since))
+                    if after:
+                        # Cursor: fetch runs strictly after the 'after' run's started_at
+                        # Resolve 'after' first
+                        try:
+                            with st._conn() as conn:  # type: ignore[attr-defined]
+                                with conn.cursor() as cur:
+                                    cur.execute("SELECT started_at FROM runs WHERE run_id=%s", (str(after),))
+                                    row = cur.fetchone()
+                                    if row and row[0]:
+                                        where.append("started_at < %s")
+                                        args.append(row[0])
+                        except Exception:
+                            pass
+                    if where:
+                        sql += " WHERE " + " AND ".join(where)
+                    sql += " ORDER BY started_at DESC LIMIT %s"
+                    if after:
+                        args.append(int(limit))
+                    else:
+                        args.append(int(limit) + int(offset))
+                    out: List[dict] = []
+                    with st._conn() as conn:  # type: ignore[attr-defined]
+                        with conn.cursor() as cur:
+                            cur.execute(sql, tuple(args))
+                            for row in cur.fetchall():
+                                status = "running" if row[3] is None else "finished"
+                                out.append(
+                                    _enrich_run_item(
+                                        {
+                                            "run_id": row[0],
+                                            "mode": None,
+                                            "started": float(row[2]) if row[2] is not None else None,
+                                            "stats": row[4] or {},
+                                            "by_tool": {},
+                                            "fields": {},
+                                            "finished": float(row[3]) if row[3] is not None else None,
+                                            "duration": (
+                                                (float(row[3]) - float(row[2]))
+                                                if row[3] is not None and row[2] is not None
+                                                else None
+                                            ),
+                                            "status": status,
+                                        }
+                                    )
+                                )
+                    db_items = out
+            except Exception:
+                db_items = []
+
+        # Merge reporter + DB (reporter wins on duplicate run_id).
+        combined: List[dict] = []
+        seen: set[str] = set()
+        for item in reporter_items:
+            rid = item.get("run_id")
+            rid_key = str(rid) if rid is not None else None
+            if rid_key and rid_key in seen:
+                continue
+            if rid_key:
+                seen.add(rid_key)
+            combined.append(item)
+        for item in db_items:
+            rid = item.get("run_id")
+            rid_key = str(rid) if rid is not None else None
+            if rid_key and rid_key in seen:
+                continue
+            if rid_key:
+                seen.add(rid_key)
+            combined.append(item)
+        try:
+            combined.sort(key=lambda r: float(r.get("started", 0) or 0), reverse=True)
+        except Exception:
+            pass
+
+        # Apply pagination after merge
+        if after:
+            try:
+                idx = next(i for i, r in enumerate(combined) if str(r.get("run_id")) == str(after))
+                start = idx + 1
+            except StopIteration:
+                start = 0
+            window = combined[start : start + limit]
+            total = len(combined) - start
+        else:
+            total = len(combined)
+            window = combined[offset : offset + limit]
+
+        if window:
+            return {"runs": window, "total": total, "offset": offset, "limit": limit}
+
+        # Fallback: reflect queue state (running/completed) when reporter/DB are empty
         try:
             from engine.api.routes import queue as queue_routes
 
@@ -269,87 +368,6 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         except Exception:
             pass
 
-        # Fallback: best-effort DB query when reporter not available
-        try:
-            st = orchestrator._storage  # type: ignore[attr-defined]
-            if hasattr(st, "_conn"):
-                args: list[Any] = []
-                sql = (
-                    "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats, tenant_id "
-                    "FROM runs"
-                )
-                where = []
-                # Tenant filter when multitenancy is enforced and API key resolves
-                try:
-                    from engine.core.config.settings import settings as _settings
-                    if getattr(_settings, "MULTITENANT_ENFORCED", False) and request is not None:
-                        resolver = getattr(st, "resolve_tenant", None)
-                        tenant_id = resolver(request.headers.get("X-API-Key")) if callable(resolver) else None
-                        if tenant_id is None:
-                            raise HTTPException(status_code=401, detail="unauthorized")
-                        where.append("tenant_id IS NOT DISTINCT FROM %s")
-                        args.append(tenant_id)
-                except Exception:
-                    pass
-                if since is not None:
-                    where.append("started_at >= to_timestamp(%s)")
-                    args.append(float(since))
-                if where:
-                    sql += " WHERE " + " AND ".join(where)
-                if after:
-                    # Cursor: fetch runs strictly after the 'after' run's started_at
-                    # Resolve 'after' first
-                    try:
-                        with st._conn() as conn:  # type: ignore[attr-defined]
-                            with conn.cursor() as cur:
-                                cur.execute("SELECT started_at FROM runs WHERE run_id=%s", (str(after),))
-                                row = cur.fetchone()
-                                if row and row[0]:
-                                    where.append("started_at < %s")
-                                    args.append(row[0])
-                    except Exception:
-                        pass
-                    if where:
-                        sql = (
-                            "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats FROM runs WHERE "
-                            + " AND ".join(where)
-                            + " ORDER BY started_at DESC LIMIT %s"
-                        )
-                        args.append(int(limit))
-                    else:
-                        sql += " ORDER BY started_at DESC LIMIT %s"
-                        args.append(int(limit))
-                else:
-                    sql += " ORDER BY started_at DESC LIMIT %s OFFSET %s"
-                    args.extend([int(limit), int(offset)])
-                out = []
-                with st._conn() as conn:  # type: ignore[attr-defined]
-                    with conn.cursor() as cur:
-                        cur.execute(sql, tuple(args))
-                        for row in cur.fetchall():
-                            status = "running" if row[3] is None else "finished"
-                            out.append(
-                                _enrich_run_item(
-                                    {
-                                        "run_id": row[0],
-                                        "mode": None,
-                                        "started": float(row[2]) if row[2] is not None else None,
-                                        "stats": row[4] or {},
-                                        "by_tool": {},
-                                        "fields": {},
-                                        "finished": float(row[3]) if row[3] is not None else None,
-                                        "duration": (
-                                            (float(row[3]) - float(row[2]))
-                                            if row[3] is not None and row[2] is not None
-                                            else None
-                                        ),
-                                        "status": status,
-                                    }
-                                )
-                            )
-                return {"runs": out, "total": len(out), "offset": offset, "limit": limit}
-        except Exception:
-            pass
         return {"runs": [], "total": 0, "offset": offset, "limit": limit}
 
     @router.post("/runs")
