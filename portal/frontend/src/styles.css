@@ -1150,12 +1150,116 @@ body {
 
 .kp-plan-json {
   margin: 0;
-  padding: 0.6rem 0.7rem;
-  border-radius: 10px;
-  background: #111;
-  font-size: 0.78rem;
-  max-height: 220px;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: #101010;
+  color: #f4f0e6;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  line-height: 1.5;
+  max-height: 320px;
   overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  tab-size: 2;
+}
+
+.kp-json-viewer {
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: #101010;
+  color: #f4f0e6;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  tab-size: 2;
+}
+
+.kp-json-control-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f2d49f;
+  color: #2d1606;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.kp-json-control-btn:hover {
+  background: #f4e0b8;
+}
+
+.kp-json-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  white-space: pre-wrap;
+}
+
+.kp-json-children {
+  padding-left: 1.1rem;
+}
+
+.kp-json-node > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.kp-json-node > summary::marker {
+  content: "";
+}
+
+.kp-json-node > summary::before {
+  content: "▸";
+  color: #d9b36a;
+  margin-right: 0.35rem;
+  font-size: 0.8rem;
+  transition: transform 120ms ease;
+  display: inline-block;
+}
+
+.kp-json-node[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.kp-json-key {
+  color: #9cdcfe;
+}
+
+.kp-json-string {
+  color: #ce9178;
+}
+
+.kp-json-number {
+  color: #b5cea8;
+}
+
+.kp-json-boolean {
+  color: #569cd6;
+}
+
+.kp-json-null {
+  color: #808080;
+}
+
+.kp-json-brace {
+  color: #d4d4d4;
+}
+
+.kp-json-meta {
+  color: #7a7a7a;
+  margin-left: 0.35rem;
+}
+
+.kp-json-colon,
+.kp-json-comma {
+  color: #9aa0a6;
 }
 
 .kp-run-details {
@@ -1740,4 +1844,17 @@ body {
   .kp-dashboard-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.kp-json-viewer-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.kp-json-viewer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
