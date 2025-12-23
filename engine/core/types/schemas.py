@@ -42,6 +42,11 @@ TargetQuerySchema = {
     "properties": {
         "text": {"type": "string", "minLength": 1},
         "css": {"type": "string", "minLength": 1},
+        # Internal hints used by the planner/executor/PageBrain.
+        "__intent": {"type": "object"},
+        "__tool": {"type": "string"},
+        "__domain": {"type": "string"},
+        "__step_text": {"type": "string"},
         "hints": {
             "type": "object",
             "properties": {

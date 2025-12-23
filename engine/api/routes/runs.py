@@ -213,7 +213,8 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                 if hasattr(st, "_conn"):
                     args: list[Any] = []
                     sql = (
-                        "SELECT run_id, test_id, extract(epoch from started_at) as started, extract(epoch from finished_at) as finished, stats, tenant_id "
+                        "SELECT run_id, test_id, extract(epoch from started_at) as started, "
+                        "extract(epoch from finished_at) as finished, stats, tenant_id, fields "
                         "FROM runs"
                     )
                     where = []
@@ -266,7 +267,11 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                                             "started": float(row[2]) if row[2] is not None else None,
                                             "stats": row[4] or {},
                                             "by_tool": {},
-                                            "fields": {},
+                                            "fields": (
+                                                row[6]
+                                                if isinstance(row[6], dict)
+                                                else (json.loads(row[6]) if row[6] else {})
+                                            ),
                                             "finished": float(row[3]) if row[3] is not None else None,
                                             "duration": (
                                                 (float(row[3]) - float(row[2]))

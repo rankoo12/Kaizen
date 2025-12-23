@@ -129,6 +129,16 @@ class PostgresStorage:
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_tenant ON runs(tenant_id)")
                 except Exception:
                     pass
+                try:
+                    cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS fields JSONB")
+                except Exception:
+                    pass
+                try:
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_runs_suite_run_id ON runs((fields->>'suite_run_id'))"
+                    )
+                except Exception:
+                    pass
                 # Best-effort additive columns for annotations metadata
                 try:
                     cur.execute("ALTER TABLE run_action_annotations ADD COLUMN IF NOT EXISTS selector JSONB")
@@ -421,7 +431,7 @@ class PostgresStorage:
                     SELECT run_id, test_id, website,
                            extract(epoch from started_at),
                            extract(epoch from finished_at),
-                           stats, tenant_id
+                           stats, tenant_id, fields
                     FROM runs
                     WHERE run_id=%s
                     """,
@@ -440,6 +450,7 @@ class PostgresStorage:
                     "status": status,
                     "stats": row[5] if isinstance(row[5], dict) else (json.loads(row[5]) if row[5] else {}),
                     "tenant_id": row[6],
+                    "fields": row[7] if isinstance(row[7], dict) else (json.loads(row[7]) if row[7] else {}),
                 }
 
     def get_selector_feedback_for_test(self, test_id: str) -> dict:
@@ -676,12 +687,37 @@ class PostgresStorage:
                     "UPDATE queue SET status='running', run_id=%s, updated_at=NOW() WHERE job_id=%s",
                     (run_id, job_id),
                 )
-                # Propagate tenant_id from queue payload to runs row when available
+                # Propagate tenant_id + suite fields from queue payload to runs row
                 try:
-                    cur.execute("SELECT payload->>'tenant_id' FROM queue WHERE job_id=%s", (job_id,))
+                    cur.execute("SELECT payload FROM queue WHERE job_id=%s", (job_id,))
                     row = cur.fetchone()
-                    if row and row[0] and run_id:
-                        cur.execute("UPDATE runs SET tenant_id=%s WHERE run_id=%s", (row[0], run_id))
+                    payload = None
+                    if row:
+                        payload = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                    if payload and run_id:
+                        try:
+                            tenant_id = payload.get("tenant_id")
+                            if tenant_id:
+                                cur.execute(
+                                    "UPDATE runs SET tenant_id=%s WHERE run_id=%s",
+                                    (str(tenant_id), run_id),
+                                )
+                        except Exception:
+                            pass
+                        try:
+                            fields = None
+                            if isinstance(payload.get("fields"), dict):
+                                fields = payload.get("fields")
+                            spec = payload.get("spec") if isinstance(payload, dict) else None
+                            if isinstance(spec, dict) and isinstance(spec.get("fields"), dict):
+                                fields = dict(spec.get("fields") or {})
+                            if isinstance(fields, dict):
+                                cur.execute(
+                                    "UPDATE runs SET fields=%s::jsonb WHERE run_id=%s",
+                                    (json.dumps(fields), run_id),
+                                )
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 

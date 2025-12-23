@@ -278,8 +278,27 @@ class EngineOrchestrator(IOrchestrator):
                 **extra_fields,
             )
 
-        # Build a minimal deterministic plan: open a safe URL first
-        target_url = url or "about:blank"
+        # Build a minimal deterministic plan: open a safe URL first.
+        # If callers didn't pass a URL, try to derive it from the spec.
+        target_url = url
+        if not target_url:
+            try:
+                if isinstance(spec, dict):
+                    target_url = (
+                        spec.get("app_base_url")
+                        or spec.get("website")
+                        or spec.get("url")
+                    )
+                else:
+                    target_url = (
+                        getattr(spec, "app_base_url", None)
+                        or getattr(spec, "website", None)
+                        or getattr(spec, "url", None)
+                    )
+            except Exception:
+                target_url = None
+        if not target_url:
+            target_url = "about:blank"
         plan: list[dict] = [
             {"tool": "open", "args": {"url": target_url}},
         ]

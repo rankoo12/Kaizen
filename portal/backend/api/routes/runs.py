@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Any, Dict
 
 import httpx
@@ -83,7 +84,7 @@ def _db_list_runs(
             args.append(float(since))
         sql = (
             "SELECT run_id, test_id, extract(epoch from started_at) as started, "
-            "extract(epoch from finished_at) as finished, stats "
+            "extract(epoch from finished_at) as finished, stats, fields "
             "FROM runs"
         )
         if where:
@@ -102,6 +103,12 @@ def _db_list_runs(
                     started = float(row[2]) if row[2] is not None else None
                     finished = float(row[3]) if row[3] is not None else None
                     stats = row[4] or {}
+                    fields = row[5] or {}
+                    if isinstance(fields, str):
+                        try:
+                            fields = json.loads(fields)
+                        except Exception:
+                            fields = {}
                     duration = (finished - started) if finished is not None and started is not None else None
                     rows.append(
                         {
@@ -112,7 +119,7 @@ def _db_list_runs(
                             "duration": duration,
                             "stats": stats,
                             "by_tool": {},
-                            "fields": {"test_id": test_id} if test_id else {},
+                            "fields": fields if isinstance(fields, dict) else {"test_id": test_id} if test_id else {},
                         }
                     )
         return {"runs": rows, "total": len(rows), "offset": offset, "limit": limit}
