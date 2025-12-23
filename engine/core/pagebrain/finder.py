@@ -235,9 +235,29 @@ class PageBrainFinder(ElementResolver):
             eval_fn = getattr(self._browser, "evaluate", None)
             if not callable(runner) or not callable(eval_fn):
                 return True
-            state = runner(eval_fn("document.readyState"))
-            if isinstance(state, str):
-                return state.lower() in {"interactive", "complete"}
+            probe = runner(
+                eval_fn(
+                    "(function(){const s=document.readyState||'';"
+                    "const href=location.href||'';"
+                    "const body=document.body||null;"
+                    "const len=body && body.innerText ? body.innerText.trim().length : 0;"
+                    "return {state:s, href:href, bodyLen:len};})();"
+                )
+            )
+            if isinstance(probe, dict):
+                state = str(probe.get("state") or "").lower()
+                href = str(probe.get("href") or "").strip().lower()
+                body_len = probe.get("bodyLen") or 0
+                if href in {"about:blank", ""}:
+                    return False
+                if state not in {"interactive", "complete"}:
+                    return False
+                # Consider the page not ready when there's effectively no body content.
+                if isinstance(body_len, (int, float)) and body_len <= 0:
+                    return False
+                return True
+            if isinstance(probe, str):
+                return probe.lower() in {"interactive", "complete"}
         except Exception:
             return True
         return False
