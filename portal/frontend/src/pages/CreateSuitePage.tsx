@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../components/ToastContext";
 
@@ -179,7 +179,7 @@ export const CreateSuitePage = () => {
         const text = await response.text();
         throw new Error(`Run failed (${response.status}): ${text}`);
       }
-      const data: { runId?: string; runIds?: string[] } = await response.json();
+      const data: { runId?: string; runIds?: string[]; errors?: Array<{ test_id?: string; error?: string }> } = await response.json();
       const runLabel = data.runIds?.length
         ? `Run started for ${data.runIds.length} tests.`
         : data.runId
@@ -189,6 +189,10 @@ export const CreateSuitePage = () => {
         "success",
         runLabel,
       );
+      if (Array.isArray(data.errors) && data.errors.length) {
+        const failed = data.errors.map((e) => e.test_id || "unknown").join(", ");
+        toast.showToast("error", `Suite finished with ${data.errors.length} failures: ${failed}`);
+      }
       navigate("/runs");
     } catch (e) {
       toast.showToast(

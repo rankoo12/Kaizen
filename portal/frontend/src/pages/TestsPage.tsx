@@ -224,6 +224,18 @@ export const TestsPage = () => {
                         <button
                           type="button"
                           className="kp-icon-button"
+                          aria-label={`Edit ${test.name}`}
+                          onClick={() =>
+                            navigate(
+                              `/tests/${encodeURIComponent(test.id)}/edit`,
+                            )
+                          }
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="kp-icon-button"
                           aria-label={`Run ${test.name}`}
                         >
                           ➜

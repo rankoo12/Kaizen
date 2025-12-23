@@ -12,6 +12,8 @@ from engine.core.reporting.reporter import IReporter
 from engine.core.llm.text_llm import ILLMText
 from engine.core.config.settings import Settings, settings as _settings
 from engine.core.types.dtos import StepSpec
+from engine.core.parsing.intent import parse_intent, split_type_step
+from engine.core.llm.intent_prompt import build_intent_prompt
 
 
 class EngineOrchestrator(IOrchestrator):
@@ -45,6 +47,52 @@ class EngineOrchestrator(IOrchestrator):
         self._reporter = reporter
         self._llm = llm
         self._settings = settings
+
+    def _llm_parse_intent(self, text: str, tool: str | None = None) -> dict:
+        if self._llm is None or not isinstance(text, str) or not text.strip():
+            return {}
+        try:
+            prompt = build_intent_prompt(text, tool)
+            raw = self._llm.ask(prompt)
+        except Exception:
+            return {}
+        try:
+            import json
+
+            data = json.loads(raw)
+        except Exception:
+            try:
+                start = raw.find("{")
+                end = raw.rfind("}") + 1
+                if start >= 0 and end > start:
+                    import json
+
+                    data = json.loads(raw[start:end])
+                else:
+                    return {}
+            except Exception:
+                return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict = {}
+        noun = data.get("noun")
+        if isinstance(noun, str) and noun.strip():
+            out["noun"] = noun.strip()
+        ordinal = data.get("ordinal")
+        position = data.get("position")
+        if isinstance(position, str) and position.strip().lower() in {"last", "final"}:
+            out["position"] = "last"
+        else:
+            if isinstance(ordinal, str):
+                ordinal = ordinal.strip()
+                if ordinal:
+                    try:
+                        ordinal = int(ordinal)
+                    except Exception:
+                        ordinal = None
+            if isinstance(ordinal, int) and ordinal != 0:
+                out["ordinal"] = ordinal
+        return out
 
     def run_snapshot(
         self,
@@ -424,14 +472,34 @@ class EngineOrchestrator(IOrchestrator):
                         css_like = True
                 except Exception:
                     css_like = False
-                target = {"css": raw} if css_like else {"text": raw}
+                if css_like:
+                    target = {"css": raw}
+                else:
+                    intent = parse_intent(text, tool="click")
+                    if not intent:
+                        intent = self._llm_parse_intent(text, tool="click")
+                    noun = intent.get("noun") if isinstance(intent, dict) else None
+                    target_text = noun if isinstance(noun, str) and noun else raw
+                    target = {"text": target_text}
+                    if intent:
+                        target["__intent"] = intent
                 plan.append({"tool": "click", "args": {"target": target}})
-            elif lower.startswith("type "):
-                typed = text.split(" ", 1)[1].strip()
+            elif lower.startswith(("type ", "enter ", "write ")):
+                typed, target_phrase = split_type_step(text)
+                if not typed:
+                    typed = text.split(" ", 1)[1].strip()
+                intent = parse_intent(target_phrase or text, tool="type")
+                if not intent:
+                    intent = self._llm_parse_intent(target_phrase or text, tool="type")
+                noun = intent.get("noun") if isinstance(intent, dict) else None
+                target_text = noun if isinstance(noun, str) and noun else "input"
+                target = {"text": target_text}
+                if intent:
+                    target["__intent"] = intent
                 plan.append(
                     {
                         "tool": "type",
-                        "args": {"target": {"text": "input"}, "text": typed},
+                        "args": {"target": target, "text": typed},
                     }
                 )
             elif lower.startswith("press "):
@@ -490,6 +558,11 @@ class EngineOrchestrator(IOrchestrator):
             heal_stats = self._executor.get_last_heal_stats() or {}
         except Exception:
             heal_stats = {}
+        llm_stats = {}
+        try:
+            llm_stats = self._executor.get_last_llm_stats() or {}
+        except Exception:
+            llm_stats = {}
         stats = {
             "total": total,
             "passed": passed,
@@ -504,6 +577,19 @@ class EngineOrchestrator(IOrchestrator):
             "profile_hits": int(heal_stats.get("profile_hits", 0) or 0),
             "profile_misses": int(heal_stats.get("profile_misses", 0) or 0),
         }
+        # Aggregate PageBrain/LLM token usage when available
+        try:
+            stats["llm_prompt_tokens"] = int(
+                llm_stats.get("llm_prompt_tokens", 0) or 0
+            )
+            stats["llm_completion_tokens"] = int(
+                llm_stats.get("llm_completion_tokens", 0) or 0
+            )
+            stats["llm_total_tokens"] = int(
+                llm_stats.get("llm_total_tokens", 0) or 0
+            )
+        except Exception:
+            pass
         if self._reporter:
             self._reporter.on_run_finish(run_id, stats)
             self._reporter.on_finish(run_id)

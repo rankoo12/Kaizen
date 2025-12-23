@@ -1,5 +1,5 @@
-import type { FormEvent, KeyboardEvent } from "react";
-import { useMemo, useState } from "react";
+﻿import type { FormEvent, KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PlanPreviewModal } from "../components/PlanPreviewModal";
 import { useToast } from "../components/ToastContext";
@@ -71,6 +71,9 @@ export const TestEditorPage = () => {
   const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
   const isEditMode = routeTestId != null;
+  const saveInFlight = useRef(false);
+  const savedTestIdRef = useRef<string | null>(null);
+  const runInFlight = useRef(false);
 
   const urlFromVariables = useMemo(() => {
     const row = variables.find((v) => v.key.toLowerCase().trim() === "url");
@@ -81,6 +84,93 @@ export const TestEditorPage = () => {
     () => tags.map((t) => t.trim()).filter(Boolean),
     [tags],
   );
+
+  // When editing an existing test, fetch its spec from the Portal API and
+  // hydrate the editor fields so users can update steps/metadata in place.
+  // In create mode (/tests/new), we keep the default empty template.
+  useEffect(() => {
+    if (!isEditMode || !routeTestId) {
+      return;
+    }
+    let cancelled = false;
+
+    const loadTest = async () => {
+      setError(null);
+      try {
+        const response = await fetch(
+          `/api/tests/${encodeURIComponent(routeTestId)}`,
+        );
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Failed to load test (${response.status}): ${text}`);
+        }
+        const data: {
+          test_id?: string | number;
+          test?: {
+            id?: string;
+            name?: string;
+            description?: string;
+            tags?: string[];
+            vars?: Record<string, string>;
+            steps?: Array<{
+              id?: string;
+              index?: number;
+              text?: string;
+              timeout?: number;
+              expected?: string;
+            }>;
+          };
+        } = await response.json();
+        if (cancelled) return;
+        const spec = data.test || {};
+        const loadedId =
+          (spec.id && String(spec.id)) ||
+          (data.test_id && String(data.test_id)) ||
+          routeTestId;
+        setTestId(loadedId);
+        setName(spec.name || "");
+        setDescription(spec.description || "");
+        setTags(Array.isArray(spec.tags) ? spec.tags : []);
+
+        const vars: VariableRow[] = [];
+        if (spec.vars && typeof spec.vars === "object") {
+          let idx = 0;
+          for (const [k, v] of Object.entries(spec.vars)) {
+            idx += 1;
+            vars.push({
+              id: `var-${idx}`,
+              key: k,
+              value: String(v),
+            });
+          }
+        }
+        setVariables(vars);
+
+        if (Array.isArray(spec.steps) && spec.steps.length) {
+          const rows: StepRow[] = spec.steps.map((s, index) => ({
+            id: s.id || `step-${index + 1}`,
+            text: s.text || "",
+            timeoutMs: s.timeout,
+            expected: s.expected,
+          }));
+          setSteps(rows);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(
+            e instanceof Error
+              ? e.message
+              : "Failed to load existing test for editing.",
+          );
+        }
+      }
+    };
+
+    void loadTest();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, routeTestId]);
 
   const addTagFromInput = () => {
     const raw = tagInput.trim();
@@ -176,8 +266,12 @@ export const TestEditorPage = () => {
     // existing id stable.
     const id =
       testId ||
+      savedTestIdRef.current ||
       (isEditMode && routeTestId) ||
       `${baseSlug}-${Date.now().toString(36)}`;
+    if (!isEditMode && !testId && !savedTestIdRef.current) {
+      savedTestIdRef.current = id;
+    }
     const vars: Record<string, string> = {};
     for (const row of variables) {
       const key = row.key.trim();
@@ -211,6 +305,10 @@ export const TestEditorPage = () => {
     if (event) {
       event.preventDefault();
     }
+    if (saveInFlight.current) {
+      return null;
+    }
+    saveInFlight.current = true;
     setSaving(true);
     setError(null);
     setMessage(null);
@@ -229,6 +327,9 @@ export const TestEditorPage = () => {
       }
       const data: { testId?: string | number } = await response.json();
       const newId = (data.testId && String(data.testId)) || spec.id;
+      if (!isEditMode) {
+        savedTestIdRef.current = newId;
+      }
       // When editing an existing test, keep track of its id so further
       // saves update the same test. In create mode (/tests/new), each
       // save should create a new test so we intentionally do *not*
@@ -244,26 +345,30 @@ export const TestEditorPage = () => {
       return null;
     } finally {
       setSaving(false);
+      saveInFlight.current = false;
     }
   };
 
   const handleRunTest = async () => {
+    if (runInFlight.current) {
+      return;
+    }
+    runInFlight.current = true;
     setRunning(true);
     setError(null);
     setMessage(null);
     try {
-      let id = testId;
-      if (!id) {
-        id = await handleSave();
-      }
+      const savedId = await handleSave();
+      const id = savedId || testId || savedTestIdRef.current;
       if (!id) {
         throw new Error("Test ID is missing after save.");
       }
       const body: Record<string, unknown> = {
         mode: "live",
-        url: urlFromVariables
-          || deriveAppBaseUrlFromSteps(steps)
-          || "about:blank",
+        url:
+          urlFromVariables ||
+          deriveAppBaseUrlFromSteps(steps) ||
+          "about:blank",
       };
       const response = await fetch(
         `/api/tests/${encodeURIComponent(id)}/runs`,
@@ -290,6 +395,7 @@ export const TestEditorPage = () => {
       setError(e instanceof Error ? e.message : "Failed to start run.");
     } finally {
       setRunning(false);
+      runInFlight.current = false;
     }
   };
 

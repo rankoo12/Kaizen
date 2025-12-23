@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToast } from "../components/ToastContext";
 
@@ -108,7 +109,7 @@ type ArtifactTabId =
 
 const formatDurationSeconds = (start?: number, end?: number): string => {
   if (!start || !end || !Number.isFinite(start) || !Number.isFinite(end)) {
-    return "—";
+    return "ג€”";
   }
   const sec = Math.max(0, end - start);
   if (sec < 1) return "< 1s";
@@ -131,13 +132,13 @@ const formatStepStatus = (action: ActionRun): StepStatus => {
 };
 
 const formatRunStarted = (started?: number): string => {
-  if (!started || Number.isNaN(started)) return "—";
+  if (!started || Number.isNaN(started)) return "ג€”";
   try {
     const date = new Date(started * 1000);
-    if (Number.isNaN(date.getTime())) return "—";
+    if (Number.isNaN(date.getTime())) return "ג€”";
     return date.toLocaleString();
   } catch {
-    return "—";
+    return "ג€”";
   }
 };
 
@@ -162,6 +163,240 @@ const formatStepLabel = (action: ActionRun): string => {
     return action.tool;
   }
   return "Step";
+};
+
+const parseJsonForViewer = (
+  text: string | null,
+  name?: string | null,
+): unknown | null => {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const lowerName = (name || "").toLowerCase();
+  const looksJson =
+    lowerName.endsWith(".json") ||
+    lowerName.endsWith(".jsonl") ||
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("[");
+  if (!looksJson) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Try JSONL (one JSON object per line).
+    try {
+      const lines = trimmed
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!lines.length) return null;
+      return lines.map((line) => JSON.parse(line));
+    } catch {
+      return null;
+    }
+  }
+};
+
+const JsonToken = ({
+  kind,
+  children,
+}: {
+  kind: string;
+  children: ReactNode;
+}) => <span className={`kp-json-${kind}`}>{children}</span>;
+
+const renderJsonNode = (
+  value: unknown,
+  level: number,
+  keyName?: string,
+  isLast?: boolean,
+  path?: string,
+): ReactNode => {
+  const comma = isLast ? null : <JsonToken kind="comma">,</JsonToken>;
+  const key =
+    typeof keyName === "string" ? (
+      <>
+        <JsonToken kind="key">"{keyName}"</JsonToken>
+        <JsonToken kind="colon">: </JsonToken>
+      </>
+    ) : null;
+
+  if (Array.isArray(value)) {
+    const items = value;
+    const meta = `${items.length} items`;
+    return (
+      <details
+        className="kp-json-node"
+        open={level < 1}
+        key={path}
+      >
+        <summary className="kp-json-line">
+          {key}
+          <JsonToken kind="brace">[</JsonToken>
+          <JsonToken kind="meta">{meta}</JsonToken>
+        </summary>
+        <div className="kp-json-children">
+          {items.map((item, idx) =>
+            renderJsonNode(
+              item,
+              level + 1,
+              undefined,
+              idx === items.length - 1,
+              `${path || "root"}[${idx}]`,
+            ),
+          )}
+          <div className="kp-json-line">
+            <JsonToken kind="brace">]</JsonToken>
+            {comma}
+          </div>
+        </div>
+      </details>
+    );
+  }
+
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    const meta = `${keys.length} keys`;
+    return (
+      <details
+        className="kp-json-node"
+        open={level < 1}
+        key={path}
+      >
+        <summary className="kp-json-line">
+          {key}
+          <JsonToken kind="brace">{"{"}</JsonToken>
+          <JsonToken kind="meta">{meta}</JsonToken>
+        </summary>
+        <div className="kp-json-children">
+          {keys.map((k, idx) =>
+            renderJsonNode(
+              obj[k],
+              level + 1,
+              k,
+              idx === keys.length - 1,
+              `${path || "root"}.${k}`,
+            ),
+          )}
+          <div className="kp-json-line">
+            <JsonToken kind="brace">{"}"}</JsonToken>
+            {comma}
+          </div>
+        </div>
+      </details>
+    );
+  }
+
+  if (typeof value === "string") {
+    return (
+      <div className="kp-json-line" key={path}>
+        {key}
+        <JsonToken kind="string">"{value}"</JsonToken>
+        {comma}
+      </div>
+    );
+  }
+  if (typeof value === "number") {
+    return (
+      <div className="kp-json-line" key={path}>
+        {key}
+        <JsonToken kind="number">{String(value)}</JsonToken>
+        {comma}
+      </div>
+    );
+  }
+  if (typeof value === "boolean") {
+    return (
+      <div className="kp-json-line" key={path}>
+        {key}
+        <JsonToken kind="boolean">{value ? "true" : "false"}</JsonToken>
+        {comma}
+      </div>
+    );
+  }
+  if (value === null) {
+    return (
+      <div className="kp-json-line" key={path}>
+        {key}
+        <JsonToken kind="null">null</JsonToken>
+        {comma}
+      </div>
+    );
+  }
+  return (
+    <div className="kp-json-line" key={path}>
+      {key}
+      <JsonToken kind="string">"{String(value)}"</JsonToken>
+      {comma}
+    </div>
+  );
+};
+
+const JsonViewer = ({ value }: { value: unknown }) => {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [allExpanded, setAllExpanded] = useState(false);
+
+  const recomputeExpanded = () => {
+    const root = rootRef.current;
+    if (!root) {
+      setAllExpanded(false);
+      return;
+    }
+    const nodes = Array.from(root.querySelectorAll("details.kp-json-node"));
+    if (!nodes.length) {
+      setAllExpanded(true);
+      return;
+    }
+    const openCount = nodes.filter((n) => (n as HTMLDetailsElement).open).length;
+    setAllExpanded(openCount === nodes.length);
+  };
+
+  const toggleAll = () => {
+    const root = rootRef.current;
+    if (!root) return;
+    const nodes = root.querySelectorAll("details.kp-json-node");
+    const next = !allExpanded;
+    nodes.forEach((node) => {
+      (node as HTMLDetailsElement).open = next;
+    });
+    setAllExpanded(next);
+  };
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (root) {
+      const nodes = root.querySelectorAll("details.kp-json-node");
+      nodes.forEach((node, idx) => {
+        (node as HTMLDetailsElement).open = idx == 0;
+      });
+    }
+    recomputeExpanded();
+  }, [value]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const handler = () => {
+      window.requestAnimationFrame(recomputeExpanded);
+    };
+    root.addEventListener("toggle", handler);
+    return () => {
+      root.removeEventListener("toggle", handler);
+    };
+  }, []);
+
+  return (
+    <div className="kp-json-viewer" ref={rootRef}>
+      <div className="kp-json-viewer-header">
+        <button type="button" className="kp-json-control-btn" onClick={toggleAll}>
+          {allExpanded ? "Collapse all" : "Show all"}
+        </button>
+      </div>
+      <div className="kp-json-viewer-body">
+        {renderJsonNode(value, 0, undefined, true, "root")}
+      </div>
+    </div>
+  );
 };
 
 const guessArtifactTabs = (
@@ -374,6 +609,10 @@ export const RunDetailsPage = () => {
     return global;
   }, [artifactTabs, activeTab, selectedStep, artifacts]);
 
+  const artifactJsonValue = useMemo(() => {
+    return parseJsonForViewer(artifactContent, currentArtifact?.name);
+  }, [artifactContent, currentArtifact]);
+
   useEffect(() => {
     const current = currentArtifact;
     if (!current) {
@@ -526,6 +765,9 @@ export const RunDetailsPage = () => {
       payload.target_signature =
         action.target_signature as Record<string, unknown>;
     }
+    if (run?.fields && typeof run.fields["domain"] === "string") {
+      payload.domain = run.fields["domain"] as string;
+    }
 
     try {
       const res = await fetch(
@@ -629,7 +871,7 @@ export const RunDetailsPage = () => {
                         }
                       >
                         <div className="kp-run-step-main">
-                          <div className="kp-run-step-index">•</div>
+                          <div className="kp-run-step-index">ג€¢</div>
                           <div className="kp-run-step-text">
                             <div className="kp-run-step-title">{testId}</div>
                             <div className="kp-run-step-meta">
@@ -800,9 +1042,31 @@ export const RunDetailsPage = () => {
                   Run {run?.run_id || runIdSafe}
                 </div>
                 <div className="kp-run-summary-sub">
-                  Mode: {formatMode(run?.mode)} · Started:{" "}
+                  Mode: {formatMode(run?.mode)} ֲ· Started:{" "}
                   {formatRunStarted(run?.started)}
                 </div>
+                {(() => {
+                  const stats = (run?.stats || {}) as RunStats;
+                  const promptTokens = Number(
+                    (stats as any).llm_prompt_tokens ?? 0,
+                  );
+                  const completionTokens = Number(
+                    (stats as any).llm_completion_tokens ?? 0,
+                  );
+                  const totalTokens = Number(
+                    (stats as any).llm_total_tokens ??
+                      promptTokens + completionTokens,
+                  );
+                  const fmt = (v: number) =>
+                    Number.isFinite(v) ? v.toLocaleString() : "0";
+                  return (
+                    <div className="kp-run-summary-sub">
+                      LLM tokens (this run): {fmt(totalTokens)} (prompt{" "}
+                      {fmt(promptTokens)}, completion{" "}
+                      {fmt(completionTokens)})
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -894,6 +1158,69 @@ export const RunDetailsPage = () => {
               ) : (
                 <>
                   {(() => {
+                    if (activeTab === "metrics" && selectedStep) {
+                      const action = selectedStep.action;
+                      const pb = (action.pagebrain || {}) as any;
+                      const path =
+                        typeof pb?.path === "string" ? pb.path : "(none)";
+                      const candidateCount =
+                        typeof pb?.candidate_count === "number"
+                          ? pb.candidate_count
+                          : undefined;
+                      const chosenSelector =
+                        (pb?.chosen &&
+                          typeof pb.chosen === "object" &&
+                          pb.chosen.selector &&
+                          typeof pb.chosen.selector === "object" &&
+                          (pb.chosen.selector as any).value) ||
+                        (action.executor &&
+                          action.executor.selector &&
+                          typeof action.executor.selector === "object" &&
+                          (action.executor.selector as any).value) ||
+                        null;
+                      const candidates = Array.isArray(pb?.candidates)
+                        ? (pb.candidates as any[])
+                        : [];
+                      const llmUsage =
+                        (pb?.llm_usage && typeof pb.llm_usage === "object"
+                          ? pb.llm_usage
+                          : pb?.usage && typeof pb.usage === "object"
+                          ? pb.usage
+                          : null) || null;
+                      const summary = {
+                        path,
+                        engine:
+                          typeof pb?.engine === "string" ? pb.engine : null,
+                        model_id:
+                          typeof pb?.model_id === "string"
+                            ? pb.model_id
+                            : null,
+                        candidate_count: candidateCount,
+                        chosen_selector: chosenSelector,
+                        llm_usage: llmUsage,
+                        candidates: candidates.slice(0, 5).map((c: any) => {
+                          const sel =
+                            c &&
+                            typeof c === "object" &&
+                            c.selector &&
+                            typeof c.selector === "object"
+                              ? (c.selector as any)
+                              : null;
+                          return {
+                            rank: c.rank,
+                            value:
+                              sel && typeof sel.value === "string"
+                                ? sel.value
+                                : "",
+                            source:
+                              typeof c.source === "string" ? c.source : null,
+                          };
+                        }),
+                      };
+                      return (
+                        <JsonViewer value={summary} />
+                      );
+                    }
                     const current = currentArtifact;
                     if (!current) {
                       return (
@@ -914,9 +1241,13 @@ export const RunDetailsPage = () => {
                       );
                     }
                     return (
-                      <pre className="kp-plan-json">
-                        {artifactContent || "Select an artifact to view."}
-                      </pre>
+                      <>{artifactJsonValue ? (
+                        <JsonViewer value={artifactJsonValue} />
+                      ) : (
+                        <pre className="kp-plan-json">
+                          {artifactContent || "Select an artifact to view."}
+                        </pre>
+                      )}</>
                     );
                   })()}
                 </>

@@ -34,6 +34,98 @@ router = APIRouter(prefix="/tests", tags=["tests"])
 # tests created via the Portal itself.
 _PORTAL_TESTS: Dict[str, Dict[str, Any]] = {}
 
+ENGINE_API_BASE = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+ENGINE_API_TIMEOUT_SECONDS = float(os.environ.get("PORTAL_ENGINE_TIMEOUT_SECONDS", "3.0") or 3.0)
+PORTAL_DB_TIMEOUT_SECONDS = float(os.environ.get("PORTAL_DB_TIMEOUT_SECONDS", "3.0") or 3.0)
+
+
+def _engine_api_bases() -> list[str]:
+    bases: list[str] = []
+    primary = str(ENGINE_API_BASE).strip()
+    if primary:
+        bases.append(primary)
+    fallback = os.environ.get("ENGINE_API_FALLBACK_BASE")
+    if isinstance(fallback, str) and fallback.strip():
+        bases.append(fallback.strip())
+    if "engine-api" in primary:
+        bases.extend(["http://localhost:8080/api", "http://127.0.0.1:8080/api"])
+    seen: set[str] = set()
+    out: list[str] = []
+    for b in bases:
+        if b not in seen:
+            seen.add(b)
+            out.append(b)
+    return out
+
+
+def _candidate_suite_urls(base: str) -> list[str]:
+    b = str(base or "").strip().rstrip("/")
+    if not b:
+        return []
+    urls = [f"{b}/suites"]
+    if b.endswith("/api"):
+        urls.append(f"{b[:-4]}/suites")
+    else:
+        urls.append(f"{b}/api/suites")
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _pg_dsn() -> str | None:
+    dsn = os.environ.get("KAIZEN_PG_DSN") or os.environ.get("PG_DSN") or os.environ.get("DATABASE_URL")
+    if isinstance(dsn, str) and dsn.strip():
+        return dsn.strip()
+    return None
+
+
+def _db_list_tests(limit: int = 200) -> Dict[str, Any] | None:
+    dsn = _pg_dsn()
+    if not dsn:
+        return None
+    try:
+        import psycopg
+    except Exception:
+        return None
+    try:
+        items: list[Dict[str, Any]] = []
+        with psycopg.connect(
+            dsn, autocommit=True, connect_timeout=PORTAL_DB_TIMEOUT_SECONDS
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT suite_id, spec FROM suites ORDER BY updated_at DESC LIMIT %s",
+                    (int(limit),),
+                )
+                for row in cur.fetchall():
+                    sid = row[0]
+                    spec = row[1]
+                    if isinstance(spec, str):
+                        try:
+                            import json
+
+                            spec = json.loads(spec)
+                        except Exception:
+                            spec = None
+                    if not isinstance(spec, dict):
+                        continue
+                    steps = spec.get("steps") or []
+                    if not isinstance(steps, list) or not steps:
+                        continue
+                    tid = spec.get("id") or sid
+                    if not tid:
+                        continue
+                    spec = dict(spec)
+                    spec["id"] = str(tid)
+                    items.append(spec)
+        return {"items": items}
+    except Exception:
+        return None
+
 
 @router.post("", status_code=201)
 def create_test(request: Request, body: Dict[str, Any] | None = None):
@@ -46,7 +138,7 @@ def create_test(request: Request, body: Dict[str, Any] | None = None):
         if isinstance(steps_text, str):
             engine_payload["steps"] = parse_steps_text(steps_text)
             engine_payload.pop("stepsText", None)
-    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    engine_base = ENGINE_API_BASE
     headers: Dict[str, str] = {}
     try:
         if request.headers.get("X-API-Key"):
@@ -81,32 +173,43 @@ def list_tests() -> Dict[str, Any]:
     endpoint. For UX, we combine those with any Portal-local tests
     cached in this process.
     """
-    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
     items: list[Dict[str, Any]] = []
 
     # Prefer Engine-backed suites list.
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            r = client.get(f"{engine_base}/suites", params={"limit": 200})
-            r.raise_for_status()
-            data = r.json()
-            for row in data.get("items") or []:
-                spec = row.get("spec") or {}
-                if not isinstance(spec, dict):
-                    continue
-                # Heuristic: treat rows with "steps" as tests.
-                steps = spec.get("steps") or []
-                if not isinstance(steps, list) or not steps:
-                    continue
-                tid = spec.get("id") or row.get("suite_id")
-                if not tid:
-                    continue
-                spec = dict(spec)
-                spec["id"] = str(tid)
-                items.append(spec)
-    except Exception:
-        # Soft-fail; fall back to portal-local cache only.
+    fetched = False
+    for base in _engine_api_bases():
+        for url in _candidate_suite_urls(base):
+            try:
+                with httpx.Client(timeout=ENGINE_API_TIMEOUT_SECONDS) as client:
+                    r = client.get(url, params={"limit": 200})
+                    r.raise_for_status()
+                    data = r.json()
+                    for row in data.get("items") or []:
+                        spec = row.get("spec") or {}
+                        if not isinstance(spec, dict):
+                            continue
+                        # Heuristic: treat rows with "steps" as tests.
+                        steps = spec.get("steps") or []
+                        if not isinstance(steps, list) or not steps:
+                            continue
+                        tid = spec.get("id") or row.get("suite_id")
+                        if not tid:
+                            continue
+                        spec = dict(spec)
+                        spec["id"] = str(tid)
+                        items.append(spec)
+                    fetched = True
+                    break
+            except Exception:
+                continue
+        if fetched:
+            break
+    if not fetched:
+        # Soft-fail; fall back to DB + portal-local cache only.
         items = []
+        db_payload = _db_list_tests(limit=200)
+        if isinstance(db_payload, dict):
+            items = list(db_payload.get("items") or [])
 
     # Merge in Portal-local tests, preferring Engine-backed versions.
     for tid, spec in _PORTAL_TESTS.items():
@@ -116,13 +219,10 @@ def list_tests() -> Dict[str, Any]:
     return {"items": items}
 
 
-ENGINE_API_BASE = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
-
-
 @router.get("/{test_id}")
 def get_test(request: Request, test_id: str):
     """Fetch a CONTRACT-style Test from Engine API."""
-    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    engine_base = ENGINE_API_BASE
     headers: Dict[str, str] = {}
     try:
         if request.headers.get("X-API-Key"):
@@ -143,7 +243,7 @@ def get_test(request: Request, test_id: str):
 def run_test(request: Request, test_id: str, body: Dict[str, Any] | None = None):
     """Start a run for a stored Test via Engine API."""
     body = body or {}
-    engine_base = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+    engine_base = ENGINE_API_BASE
     headers: Dict[str, str] = {}
     try:
         if request.headers.get("X-API-Key"):

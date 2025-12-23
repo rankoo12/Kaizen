@@ -487,6 +487,109 @@ class PostgresStorage:
             return {}
         return feedback
 
+    def get_preferred_selectors_for_test(self, test_id: str) -> dict:
+        """Return best-known selectors per action_index for a given test.
+
+        Shape:
+            {
+              0: {"type": "css", "value": "input[name=\"q\"]"},
+              1: {"type": "css", "value": "button[aria-label=\"Search\"]"},
+              ...
+            }
+
+        We pick, per action_index, the selector with:
+        - passed >= 1 and passed >= failed, and
+        - highest (passed - failed, passed).
+        """
+        out: dict[int, dict] = {}
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT action_index,
+                               selector,
+                               label,
+                               target_signature,
+                               created_at
+                        FROM run_action_annotations
+                        WHERE test_id=%s
+                          AND action_index IS NOT NULL
+                          AND selector IS NOT NULL
+                        ORDER BY created_at DESC
+                        """,
+                        (str(test_id),),
+                    )
+                    rows = cur.fetchall() or []
+                    stats: dict[tuple[int, str, str], dict[str, int]] = {}
+                    sigs: dict[tuple[int, str, str], dict] = {}
+                    for action_idx, sel_raw, label, sig_raw, created_at in rows:
+                        try:
+                            idx = int(action_idx)
+                        except Exception:
+                            continue
+                        try:
+                            sel_obj = sel_raw if isinstance(sel_raw, dict) else json.loads(sel_raw)
+                        except Exception:
+                            continue
+                        if not isinstance(sel_obj, dict):
+                            continue
+                        sel_type = sel_obj.get("type")
+                        sel_value = sel_obj.get("value")
+                        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+                            continue
+                        key = (idx, sel_type, sel_value)
+                        entry = stats.setdefault(key, {"passed": 0, "failed": 0})
+                        lab = str(label or "").lower()
+                        if lab == "passed":
+                            entry["passed"] += 1
+                        elif lab == "failed":
+                            entry["failed"] += 1
+                        if key not in sigs:
+                            try:
+                                sig_obj = sig_raw if isinstance(sig_raw, dict) else json.loads(sig_raw)
+                            except Exception:
+                                sig_obj = None
+                            if isinstance(sig_obj, dict):
+                                sigs[key] = sig_obj
+
+                    for (idx, sel_type, sel_value), sf in stats.items():
+                        p = int(sf.get("passed", 0) or 0)
+                        f = int(sf.get("failed", 0) or 0)
+                        if p <= 0 or p < f:
+                            continue
+                        score = (p - f, p)
+                        existing = out.get(idx)
+                        if existing is not None:
+                            prev_p = int(existing.get("_passed", 0))
+                            prev_f = int(existing.get("_failed", 0))
+                            prev_score = (prev_p - prev_f, prev_p)
+                            if prev_score >= score:
+                                continue
+                        sig_obj = sigs.get((idx, sel_type, sel_value)) or {}
+                        attrs = sig_obj.get("attrs") if isinstance(sig_obj, dict) else None
+                        tag = sig_obj.get("tag") if isinstance(sig_obj, dict) else None
+                        out[idx] = {
+                            "type": sel_type,
+                            "value": sel_value,
+                            "attrs": attrs if isinstance(attrs, dict) else None,
+                            "tag": tag if isinstance(tag, str) else None,
+                            "_passed": p,
+                            "_failed": f,
+                        }
+        except Exception:
+            return {}
+        # Strip internal stats before returning.
+        for k, v in list(out.items()):
+            if isinstance(v, dict):
+                v.pop("_passed", None)
+                v.pop("_failed", None)
+                if "attrs" in v and not isinstance(v.get("attrs"), dict):
+                    v.pop("attrs", None)
+                if "tag" in v and not isinstance(v.get("tag"), str):
+                    v.pop("tag", None)
+        return out
+
     # ---- Suites ----
     def save_suite(self, suite_id: str, spec: dict, *, tenant_id: str | None = None) -> None:
         with self._conn() as conn:

@@ -74,10 +74,12 @@ class DeterministicPlanExecutor(IPlanExecutor):
         self._last_heal_extra = None
         # Resolve tenant for this run once (used for PageBrain model selection)
         self._selector_feedback: dict[str, dict[str, int]] = {}
+        self._preferred_selectors_for_test: dict[int, dict] = {}
         try:
             if getattr(self, "_storage", None) is not None:
                 get_run = getattr(self._storage, "get_run", None)
                 feedback_fn = getattr(self._storage, "get_selector_feedback_for_test", None)
+                preferred_fn = getattr(self._storage, "get_preferred_selectors_for_test", None)
                 if callable(get_run):
                     row = get_run(str(ctx.run_id))
                     if isinstance(row, dict):
@@ -88,9 +90,17 @@ class DeterministicPlanExecutor(IPlanExecutor):
                             fb = feedback_fn(str(test_id))
                             if isinstance(fb, dict):
                                 self._selector_feedback = fb
+                        if test_id and callable(preferred_fn):
+                            try:
+                                prefs = preferred_fn(str(test_id))
+                                if isinstance(prefs, dict):
+                                    self._preferred_selectors_for_test = prefs
+                            except Exception:
+                                self._preferred_selectors_for_test = {}
         except Exception:
             self._run_tenant_id = None
             self._selector_feedback = {}
+            self._preferred_selectors_for_test = {}
         # Inform resolver of tenant when supported
         try:
             if self._resolver is not None:
@@ -108,11 +118,100 @@ class DeterministicPlanExecutor(IPlanExecutor):
         except Exception:
             pass
 
+        # LLM usage counters (e.g. PageBrain LLM ranker) for this execution
+        self._llm_prompt_tokens = 0
+        self._llm_completion_tokens = 0
+        self._llm_total_tokens = 0
+
+        # Optional: stop executing remaining steps after the first failure.
+        try:
+            stop_on_failure = bool(
+                getattr(self._settings, "EXEC_STOP_ON_STEP_FAILURE", False)
+            )
+        except Exception:
+            stop_on_failure = False
+
+        # Optional: wait for the page to be idle between steps so that we
+        # do not attempt to resolve/click elements while a navigation is
+        # still in flight. This is best-effort and guarded behind settings.
+        try:
+            wait_between_steps = bool(
+                getattr(self._settings, "EXEC_WAIT_FOR_NETWORK_IDLE", False)
+            )
+            wait_idle_timeout_ms = int(
+                getattr(
+                    self._settings,
+                    "EXEC_WAIT_FOR_NETWORK_IDLE_TIMEOUT_MS",
+                    8000,
+                )
+                or 8000
+            )
+        except Exception:
+            wait_between_steps = False
+            wait_idle_timeout_ms = 8000
+
         results: List[StepResult] = []
         for idx, call in enumerate(plan):
+            if stop_on_failure and results and not bool(getattr(results[-1], "ok", True)):
+                break
+            # After the very first step, optionally wait for the page to settle
+            # (network idle) before attempting the next action. This reduces the
+            # chance of racing a still-loading page, especially after opens and
+            # clicks that trigger navigation.
+            if wait_between_steps and idx > 0:
+                self._wait_for_page_idle(wait_idle_timeout_ms)
             step_start = time.time()
             tool = call.get("tool")
             args: dict[str, Any] = call.get("args", {})
+            step_text = call.get("text")
+
+            # Normalise type text when the planner bakes UX phrasing into the
+            # payload (e.g. "rocket league in the searchbar").
+            # - We keep the full step text (including "in the searchbar") for
+            #   PageBrain/LLM context via __step_text.
+            # - We trim the actual keystrokes in args["text"] so the browser
+            #   only receives the intended value.
+            if tool == "type" and isinstance(args, dict):
+                raw_text = args.get("text")
+                if isinstance(raw_text, str) and isinstance(step_text, str):
+                    try:
+                        import re
+
+                        text_to_type: str | None = None
+
+                        # 1) Quoted payloads in the step text
+                        #    e.g. Type "Rocket League" in the searchbar
+                        m = re.search(r'"([^"]+)"', step_text)
+                        if not m:
+                            m = re.search(r"'([^']+)'", step_text)
+                        if m and m.group(1):
+                            text_to_type = m.group(1).strip()
+
+                        # 2) Unquoted "Type X in Y" style steps
+                        #    e.g. Type rocket league in the searchbar
+                        if text_to_type is None:
+                            m2 = re.match(
+                                r"\s*(type|enter|write)\s+(.+?)\s+(?:in|into|inside)\s+.+",
+                                step_text,
+                                flags=re.IGNORECASE,
+                            )
+                            if m2 and m2.group(2):
+                                candidate = m2.group(2).strip().strip("\"'")
+                                # Only trust this when it is a real substring of
+                                # the planner's payload and clearly shorter than
+                                # what the planner wants to type.
+                                if (
+                                    candidate
+                                    and candidate.lower() in raw_text.lower()
+                                    and len(candidate) < len(raw_text)
+                                ):
+                                    text_to_type = candidate
+
+                        if text_to_type and text_to_type != raw_text:
+                            args["text"] = text_to_type
+                            call["args"] = args
+                    except Exception:
+                        pass
 
             # Safety checks beyond schema
             if not tool or not isinstance(args, dict):
@@ -194,7 +293,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Resolve target deterministically for interactive actions
-            if tool in {"click", "type", "press", "waitFor", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop", "download"}:
+            if tool in {"click", "type", "press", "waitFor", "doubleClick", "rightClick", "hover", "focus", "blur", "clear", "select", "upload", "drag", "dragAndDrop", "download", "assertVisible", "assertText"}:
                 target = args.get("target")
                 # press/assertUrl/custom may not require a target
                 requires_target = (
@@ -210,7 +309,49 @@ class DeterministicPlanExecutor(IPlanExecutor):
 
                 resolved = None
                 pagebrain_meta = None
-                if isinstance(target, dict) and self._resolver is not None:
+                # Simple "locked selector" path: if a human previously marked
+                # this step as Passed and we have a stored selector for this
+                # action_index, reuse that selector directly and skip any
+                # resolver/LLM work. This implements the rule:
+                #   - first run: use normal resolver/PageBrain
+                #   - human marks step as Passed
+                #   - subsequent runs: use the same selector deterministically
+                locked = None
+                try:
+                    locked = (self._preferred_selectors_for_test or {}).get(idx)
+                except Exception:
+                    locked = None
+                if isinstance(locked, dict):
+                    sel_type = locked.get("type")
+                    sel_value = locked.get("value")
+                    locked_tag = locked.get("tag")
+                    locked_attrs = locked.get("attrs") if isinstance(locked.get("attrs"), dict) else None
+                    if isinstance(sel_type, str) and isinstance(sel_value, str):
+                        resolved = {
+                            "type": sel_type,
+                            "value": sel_value,
+                            "visible": True,
+                            "enabled": True,
+                            "tag": locked_tag,
+                            "attrs": locked_attrs or {},
+                        }
+                        if not self._selector_exists(sel_type, sel_value):
+                            attr_sel = self._build_attr_selector(
+                                locked_tag if isinstance(locked_tag, str) else None,
+                                locked_attrs,
+                            )
+                            if attr_sel and self._selector_exists("css", attr_sel):
+                                resolved = {
+                                    "type": "css",
+                                    "value": attr_sel,
+                                    "visible": True,
+                                    "enabled": True,
+                                    "tag": locked_tag,
+                                    "attrs": locked_attrs or {},
+                                }
+                            else:
+                                resolved = None
+                if resolved is None and isinstance(target, dict) and self._resolver is not None:
                     # Prefer a 'find' method if available (duck-typing), else fallback
                     finder: Callable[[dict], Any] | None = getattr(
                         self._resolver, "find", None
@@ -224,7 +365,30 @@ class DeterministicPlanExecutor(IPlanExecutor):
                         if timeout_ms is None:
                             # Legacy immediate behavior
                             try:
-                                candidates = finder(target) or []
+                                eff_target = target
+                                try:
+                                    eff_target = dict(target)
+                                    eff_target.setdefault("__tool", tool)
+                                    eff_target.setdefault(
+                                        "__domain", getattr(self, "_current_domain", None)
+                                    )
+                                    # Attach the original step text (if available)
+                                    # so PageBrainFinder and the LLM ranker can use
+                                    # richer context than target.text alone.
+                                    try:
+                                        eff_target.setdefault(
+                                            "__step_text", call.get("text")
+                                        )
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    eff_target = target
+                                try:
+                                    if isinstance(eff_target, dict):
+                                        eff_target = self._normalize_target_for_resolve(eff_target)
+                                except Exception:
+                                    pass
+                                candidates = finder(eff_target) or []
                             except Exception:
                                 candidates = []
                             if len(candidates) != 1:
@@ -262,7 +426,17 @@ class DeterministicPlanExecutor(IPlanExecutor):
                                 pagebrain_meta = None
                         else:
                             resolved_candidate, timed_out = self._poll_resolve(
-                                finder, target, timeout_ms
+                                finder,
+                                self._normalize_target_for_resolve(
+                                    {
+                                        **target,
+                                        "__tool": tool,
+                                        "__domain": getattr(self, "_current_domain", None),
+                                    }
+                                    if isinstance(target, dict)
+                                    else target
+                                ),
+                                timeout_ms,
                             )
                             if resolved_candidate is None:
                                 healed = self._try_heal(
@@ -480,6 +654,18 @@ class DeterministicPlanExecutor(IPlanExecutor):
                     perception_block = None
                 # Emit PageBrain choice event for logging/datasets when available
                 try:
+                    if pagebrain_meta:
+                        # Accumulate LLM token usage when PageBrain exposes it
+                        try:
+                            usage = None
+                            if isinstance(pagebrain_meta, dict):
+                                usage = pagebrain_meta.get("llm_usage") or pagebrain_meta.get("usage")
+                            if isinstance(usage, dict):
+                                self._llm_prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+                                self._llm_completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+                                self._llm_total_tokens += int(usage.get("total_tokens", 0) or 0)
+                        except Exception:
+                            pass
                     if self._log and pagebrain_meta:
                         self._log.info(
                             "pagebrain.choice",
@@ -584,7 +770,7 @@ class DeterministicPlanExecutor(IPlanExecutor):
                 continue
 
             # Simple tools that don't require resolution (navigation, scroll)
-            if tool in {"waitFor", "scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow", "download"}:
+            if tool in {"waitFor", "scroll", "reload", "back", "forward", "newTab", "newWindow", "switchTab", "switchWindow", "closeTab", "closeWindow", "download", "assertUrl"}:
                 res = handler.execute(call, ctx)
                 results.append(res)
                 self._emit_report(
@@ -680,6 +866,55 @@ class DeterministicPlanExecutor(IPlanExecutor):
             "profile_misses": int(getattr(self, "_profile_misses", 0) or 0),
         }
 
+    def get_last_llm_stats(self) -> dict:
+        """Return aggregated LLM token usage for the most recent execution.
+
+        Counters are populated best-effort from PageBrain metadata emitted
+        during the run (e.g. PageBrain Finder v2 LLM ranker usage). When no
+        LLM is used, all fields will be zero.
+        """
+        return {
+            "llm_prompt_tokens": int(getattr(self, "_llm_prompt_tokens", 0) or 0),
+            "llm_completion_tokens": int(
+                getattr(self, "_llm_completion_tokens", 0) or 0
+            ),
+            "llm_total_tokens": int(getattr(self, "_llm_total_tokens", 0) or 0),
+        }
+
+    def _wait_for_page_idle(self, timeout_ms: int) -> None:
+        """Best-effort wait for the current page to reach an idle state.
+
+        This uses IBrowser.wait_for_network_idle() when available; failures
+        are swallowed so that tests do not hard-fail due to long-polling
+        pages or missing implementations.
+        """
+        if self._browser is None:
+            return
+        try:
+            runner = getattr(self._browser, "run_coro", None)
+            wait_idle = getattr(self._browser, "wait_for_network_idle", None)
+            if callable(runner) and callable(wait_idle):
+                runner(wait_idle(int(max(0, int(timeout_ms or 0)))))
+        except Exception:
+            # Treat this as a no-op on failure.
+            pass
+
+    def _is_page_ready_for_llm(self) -> bool:
+        """Best-effort check that the live page is loaded before LLM calls."""
+        if self._browser is None:
+            return True
+        try:
+            runner = getattr(self._browser, "run_coro", None)
+            eval_fn = getattr(self._browser, "evaluate", None)
+            if not callable(runner) or not callable(eval_fn):
+                return True
+            state = runner(eval_fn("document.readyState"))
+            if isinstance(state, str):
+                return state.lower() in {"interactive", "complete"}
+        except Exception:
+            return True
+        return False
+
     def _now_ms(self) -> int:
         if self._clock is not None:
             n = self._clock.now()
@@ -731,12 +966,147 @@ class DeterministicPlanExecutor(IPlanExecutor):
             return R.NOT_ENABLED
         return None
 
+    def _selector_to_css(self, sel_type: str | None, sel_value: str | None) -> str | None:
+        if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+            return None
+        t = sel_type.strip().lower()
+        v = sel_value.strip()
+        if not v:
+            return None
+        if t == "css":
+            return v
+        if t == "id":
+            return f"#{v}"
+        if t == "testid":
+            return f'[data-testid="{v}"]'
+        return None
+
+    def _selector_exists(self, sel_type: str | None, sel_value: str | None) -> bool:
+        if self._browser is None:
+            return True
+        try:
+            runner = getattr(self._browser, "run_coro", None)
+            eval_fn = getattr(self._browser, "evaluate", None)
+            if not callable(runner) or not callable(eval_fn):
+                return True
+        except Exception:
+            return True
+        css = self._selector_to_css(sel_type, sel_value)
+        if not css:
+            return True
+        try:
+            import json as _json
+
+            script = f"Boolean(document.querySelector({_json.dumps(css)}))"
+            return bool(runner(eval_fn(script)))
+        except Exception:
+            return True
+
+    def _build_attr_selector(self, tag: str | None, attrs: dict | None) -> str | None:
+        if not isinstance(attrs, dict) or not attrs:
+            return None
+        try:
+            import re as _re
+            import json as _json
+        except Exception:
+            return None
+
+        priority = [
+            "data-testid",
+            "data-test-id",
+            "data-test",
+            "data-nagish",
+            "data-qa",
+            "data-qa-id",
+            "data-cy",
+            "aria-label",
+            "aria-autocomplete",
+            "placeholder",
+            "name",
+            "role",
+            "type",
+            "autocomplete",
+        ]
+        banned = {"aria-controls", "aria-labelledby", "aria-owns"}
+
+        def is_dynamic(val: str) -> bool:
+            return bool(_re.search(r"\d{3,}", val))
+
+        items: list[tuple[int, str, str]] = []
+        for k, v in attrs.items():
+            if not isinstance(k, str) or not isinstance(v, str):
+                continue
+            key = k.strip()
+            val = v.strip()
+            if not key or not val:
+                continue
+            if key in banned:
+                continue
+            if is_dynamic(val):
+                continue
+            try:
+                idx = priority.index(key)
+            except ValueError:
+                idx = len(priority)
+            items.append((idx, key, val))
+        if not items:
+            return None
+        items.sort(key=lambda t: (t[0], t[1]))
+        # cap to avoid overly-specific selectors
+        items = items[:5]
+
+        tag_name = None
+        if isinstance(tag, str) and tag.strip():
+            tag_name = tag.strip().lower()
+            if not _re.match(r"^[a-z][a-z0-9_-]*$", tag_name):
+                tag_name = None
+        if tag_name is None:
+            if any(k == "type" for _, k, _ in items):
+                tag_name = "input"
+            else:
+                tag_name = "*"
+
+        parts = [tag_name]
+        for _, key, val in items:
+            parts.append(f"[{key}={_json.dumps(val)}]")
+        return "".join(parts)
+
+    def _looks_like_plain_text(self, value: str | None) -> bool:
+        if not isinstance(value, str):
+            return False
+        v = value.strip()
+        if not v:
+            return False
+        # CSS-y tokens that usually indicate a real selector
+        if any(ch in v for ch in "#.[>:=,"):
+            return False
+        # Multi-word phrases or quoted strings are likely plain text
+        if '"' in v or "'" in v:
+            return True
+        parts = [p for p in v.split() if p]
+        return len(parts) >= 2
+
+    def _normalize_target_for_resolve(self, target: dict) -> dict:
+        """Convert suspicious css=... phrases into text targets for resolver."""
+        if not isinstance(target, dict):
+            return target
+        out = dict(target)
+        css = out.get("css")
+        text = out.get("text")
+        if isinstance(css, str) and not isinstance(text, str) and self._looks_like_plain_text(css):
+            out["text"] = css.strip()
+            try:
+                out.pop("css", None)
+            except Exception:
+                pass
+        return out
+
     def _build_signature(self, candidate: Any) -> dict:
         if not isinstance(candidate, dict):
             return {}
         sig: dict = {}
         # direct fields
-        for key in ("id", "classes", "role", "name", "visible", "enabled"):
+        for key in ("id", "classes", "role", "name", "visible", "enabled", "tag"):
             if key in candidate:
                 sig[key] = candidate.get(key)
         # normalized testid from attrs/testid/data-testid
@@ -745,6 +1115,24 @@ class DeterministicPlanExecutor(IPlanExecutor):
             testid = attrs.get("data-testid") or attrs.get("testid")
             if testid:
                 sig["testid"] = testid
+            # Store stable attributes for healing/retrieval.
+            stable_attrs: dict = {}
+            for k, v in attrs.items():
+                if not isinstance(k, str) or not isinstance(v, str):
+                    continue
+                if not v:
+                    continue
+                key = k.strip()
+                if not key:
+                    continue
+                if (
+                    key.startswith("data-")
+                    or key.startswith("aria-")
+                    or key in {"placeholder", "autocomplete", "name", "role", "type"}
+                ):
+                    stable_attrs[key] = v
+            if stable_attrs:
+                sig["attrs"] = stable_attrs
         # locator basics if present
         for key in ("type", "value"):
             if key in candidate:
@@ -1082,6 +1470,8 @@ class DeterministicPlanExecutor(IPlanExecutor):
             )
 
     def _llm_propose(self, target: dict, reason: str) -> dict | None:
+        if not self._is_page_ready_for_llm():
+            return None
         try:
             import json
 
