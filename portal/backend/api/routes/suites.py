@@ -139,10 +139,11 @@ def run_suite(request: Request, suite_id: str, body: Dict[str, Any] | None = Non
         headers = {}
 
     run_ids: list[str] = []
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            for test_id in tests:
-                tid = str(test_id)
+    errors: list[dict[str, str]] = []
+    with httpx.Client(timeout=30.0) as client:
+        for test_id in tests:
+            tid = str(test_id)
+            try:
                 resp = client.post(
                     f"{ENGINE_API_BASE}/tests/{tid}/runs",
                     json={
@@ -161,7 +162,10 @@ def run_suite(request: Request, suite_id: str, body: Dict[str, Any] | None = Non
                 run_id = data.get("run_id")
                 if run_id:
                     run_ids.append(str(run_id))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"portal run suite error: {e!s}")
+                else:
+                    errors.append({"test_id": tid, "error": "missing_run_id"})
+            except Exception as e:
+                errors.append({"test_id": tid, "error": str(e)})
+                continue
 
-    return {"runIds": run_ids}
+    return {"runIds": run_ids, "errors": errors}

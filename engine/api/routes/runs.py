@@ -79,10 +79,15 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
         """
         rep = reporter_mod.RUN_REPORTER
         runs: List[dict] = []
+        used_reporter = False
 
-        # Prefer in-memory reporter which has richer rollups
+        # Prefer in-memory reporter which has richer rollups.
         try:
-            all_runs = list(getattr(rep, "_runs", []) or [])
+            used_reporter = True
+            try:
+                all_runs = list(getattr(rep, "_runs", []) or [])
+            except Exception:
+                all_runs = []
             # Include currently running runs from reporter._open so callers
             # can see in-flight executions. These entries will disappear once
             # on_run_finish moves them into _runs.
@@ -155,7 +160,8 @@ def register_run_routes(app: FastAPI, orchestrator) -> None:
                 runs.append(item)
             return {"runs": runs, "total": total, "offset": offset, "limit": limit}
         except Exception:
-            runs = []
+            if used_reporter:
+                return {"runs": [], "total": 0, "offset": offset, "limit": limit}
 
         # Fallback: best-effort DB query when reporter not available
         try:

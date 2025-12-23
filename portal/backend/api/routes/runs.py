@@ -9,6 +9,115 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 ENGINE_API_BASE = os.environ.get("ENGINE_API_BASE", "http://engine-api:8080/api")
+ENGINE_API_TIMEOUT_SECONDS = float(os.environ.get("PORTAL_ENGINE_TIMEOUT_SECONDS", "3.0") or 3.0)
+PORTAL_DB_TIMEOUT_SECONDS = float(os.environ.get("PORTAL_DB_TIMEOUT_SECONDS", "3.0") or 3.0)
+
+
+def _engine_api_bases() -> list[str]:
+    """Return candidate Engine API base URLs, preferring configured values."""
+    bases: list[str] = []
+    primary = str(ENGINE_API_BASE).strip()
+    if primary:
+        bases.append(primary)
+    fallback = os.environ.get("ENGINE_API_FALLBACK_BASE")
+    if isinstance(fallback, str) and fallback.strip():
+        bases.append(fallback.strip())
+    # Common local dev fallbacks when docker DNS is unavailable
+    if "engine-api" in primary:
+        bases.extend(["http://localhost:8080/api", "http://127.0.0.1:8080/api"])
+    # De-dup while preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for b in bases:
+        if b not in seen:
+            seen.add(b)
+            out.append(b)
+    return out
+
+
+def _candidate_run_urls(base: str) -> list[str]:
+    """Return possible /runs URLs for a given base (with/without /api)."""
+    b = str(base or "").strip().rstrip("/")
+    if not b:
+        return []
+    urls = [f"{b}/runs"]
+    if b.endswith("/api"):
+        urls.append(f"{b[:-4]}/runs")
+    else:
+        urls.append(f"{b}/api/runs")
+    # de-dup
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _pg_dsn() -> str | None:
+    dsn = os.environ.get("KAIZEN_PG_DSN") or os.environ.get("PG_DSN") or os.environ.get("DATABASE_URL")
+    if isinstance(dsn, str) and dsn.strip():
+        return dsn.strip()
+    return None
+
+
+def _db_list_runs(
+    *,
+    limit: int,
+    offset: int,
+    since: float | None,
+) -> Dict[str, Any] | None:
+    dsn = _pg_dsn()
+    if not dsn:
+        return None
+    try:
+        import psycopg
+    except Exception:
+        return None
+    try:
+        where = []
+        args: list[Any] = []
+        if since is not None:
+            where.append("started_at >= to_timestamp(%s)")
+            args.append(float(since))
+        sql = (
+            "SELECT run_id, test_id, extract(epoch from started_at) as started, "
+            "extract(epoch from finished_at) as finished, stats "
+            "FROM runs"
+        )
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY started_at DESC LIMIT %s OFFSET %s"
+        args.extend([int(limit), int(offset)])
+        rows: list[dict] = []
+        with psycopg.connect(
+            dsn, autocommit=True, connect_timeout=PORTAL_DB_TIMEOUT_SECONDS
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, tuple(args))
+                for row in cur.fetchall():
+                    run_id = row[0]
+                    test_id = row[1]
+                    started = float(row[2]) if row[2] is not None else None
+                    finished = float(row[3]) if row[3] is not None else None
+                    stats = row[4] or {}
+                    duration = (finished - started) if finished is not None and started is not None else None
+                    rows.append(
+                        {
+                            "run_id": run_id,
+                            "mode": None,
+                            "started": started,
+                            "finished": finished,
+                            "duration": duration,
+                            "stats": stats,
+                            "by_tool": {},
+                            "fields": {"test_id": test_id} if test_id else {},
+                        }
+                    )
+        return {"runs": rows, "total": len(rows), "offset": offset, "limit": limit}
+    except Exception:
+        return None
 
 
 def _client_get(client: httpx.Client, url: str, *, params: Dict[str, Any] | None = None, headers: Dict[str, str] | None = None):
@@ -91,10 +200,34 @@ def list_runs(request: Request, mode: str | None = None, limit: int | None = Non
                 headers["X-API-Key"] = request.headers["X-API-Key"]
         except Exception:
             pass
-        with httpx.Client(timeout=10.0) as client:
-            r = _client_get(client, f"{ENGINE_API_BASE}/runs", params=q, headers=headers or None)
-            r.raise_for_status()
-            return r.json()
+        last_err: Exception | None = None
+        for base in _engine_api_bases():
+            for url in _candidate_run_urls(base):
+                try:
+                    with httpx.Client(timeout=ENGINE_API_TIMEOUT_SECONDS) as client:
+                        r = _client_get(client, url, params=q, headers=headers or None)
+                        r.raise_for_status()
+                        return r.json()
+                except Exception as e:
+                    last_err = e
+                    # Quick DB fallback if available so UI doesn't hang on retries.
+                    db_payload = _db_list_runs(
+                        limit=int(limit or 50),
+                        offset=int(offset or 0),
+                        since=since,
+                    )
+                    if isinstance(db_payload, dict) and (db_payload.get("runs") or []):
+                        return db_payload
+                    continue
+        # DB fallback when engine API is unreachable
+        db_payload = _db_list_runs(
+            limit=int(limit or 50),
+            offset=int(offset or 0),
+            since=since,
+        )
+        if isinstance(db_payload, dict):
+            return db_payload
+        raise HTTPException(status_code=500, detail=f"portal runs list error: {last_err!s}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"portal runs list error: {e!s}")
 
