@@ -62,6 +62,28 @@ class Settings(BaseSettings):
         default=None,
         description="Per-step soft timeout (currently applied to resolve phase only)",
     )
+    EXEC_STOP_ON_STEP_FAILURE: bool = Field(
+        default=False,
+        description=(
+            "When true, stop executing subsequent steps in a plan after the first "
+            "failed step. This is primarily intended for live runs so that a "
+            "broken action does not cascade into noisy follow-up failures."
+        ),
+    )
+    EXEC_WAIT_FOR_NETWORK_IDLE: bool = Field(
+        default=True,
+        description=(
+            "When true, the live plan executor waits for the browser page to "
+            "reach a stable 'network idle' state between steps (best-effort)."
+        ),
+    )
+    EXEC_WAIT_FOR_NETWORK_IDLE_TIMEOUT_MS: int = Field(
+        default=8000,
+        description=(
+            "Timeout in milliseconds for the inter-step wait_for_network_idle "
+            "check when EXEC_WAIT_FOR_NETWORK_IDLE is enabled."
+        ),
+    )
 
     # SBOM reference identifier (if available) to tag run logs/metrics
     SBOM_REF: str | None = Field(default=None)
@@ -178,6 +200,54 @@ class Settings(BaseSettings):
     PAGEBRAIN_TENANT_MODELS: dict[str, str] | None = Field(
         default=None,
         description="Optional mapping of tenant_id -> model_id for PageBrain model overrides",
+    )
+    PAGEBRAIN_FINDER_PATH: Literal["resolver", "finder_v2"] = Field(
+        default="resolver",
+        description=(
+            "Element finder path: 'resolver' uses the existing PageBrain resolver, "
+            "'finder_v2' enables the PageBrain Finder v2 implementation"
+        ),
+    )
+    PAGEBRAIN_RANKER_MODE: Literal["fallback", "llm"] = Field(
+        default="fallback",
+        description=(
+            "PageBrain finder ranker mode: 'fallback' uses only the GBM/tabular ranker, "
+            "'llm' attempts the LLM ranker first and falls back on error/timeout/invalid output"
+        ),
+    )
+    PAGEBRAIN_LLM_MODEL: str | None = Field(
+        default=None,
+        description=(
+            "Model identifier for the PageBrain LLM ranker "
+            "(e.g. 'qwen2.5-vl-72b-instruct' when running a local Qwen service)"
+        ),
+    )
+    PAGEBRAIN_LLM_BASE_URL: str = Field(
+        default="http://pagebrain-llm:9000",
+        description=(
+            "Base URL for the PageBrain LLM ranker service "
+            "(for example, a local Qwen HTTP endpoint)"
+        ),
+    )
+    PAGEBRAIN_LLM_TIMEOUT_SECONDS: float = Field(
+        default=30.0,
+        description="Timeout for PageBrain LLM ranker calls (seconds)",
+    )
+    PAGEBRAIN_LLM_BACKEND: Literal["local_http", "openai"] = Field(
+        default="local_http",
+        description=(
+            "Backend used for the PageBrain LLM ranker: "
+            "'local_http' talks to a self-hosted OpenAI-compatible endpoint "
+            "(e.g. vLLM + Qwen), 'openai' calls the public OpenAI API "
+            "(e.g. gpt-5-mini)."
+        ),
+    )
+    PAGEBRAIN_LLM_API_KEY: str | None = Field(
+        default=None,
+        description=(
+            "API key for remote PageBrain LLM backends that require auth "
+            "(for example, the OpenAI API when PAGEBRAIN_LLM_BACKEND='openai')."
+        ),
     )
 
     @model_validator(mode="before")

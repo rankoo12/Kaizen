@@ -2,6 +2,13 @@ from dependency_injector import containers, providers
 from engine.core.config.settings import Settings
 from engine.core.pagebrain.pagebrain_resolver import PageBrainResolver
 from engine.core.pagebrain.model_store import PageBrainModelStore
+from engine.core.pagebrain.finder import PageBrainFinder
+from engine.core.pagebrain.llm_ranker import (
+    ILlmPageBrainRanker,
+    NoopLlmPageBrainRanker,
+    QwenLlmPageBrainRanker,
+    OpenAiLlmPageBrainRanker,
+)
 from engine.core.orchestrator.snapshot_runner import SnapshotRunner
 from engine.core.orchestrator.types import IPlanner, IResolveSnapshot
 from engine.core.browser.playwright_driver import PlaywrightBrowser
@@ -227,6 +234,80 @@ class InMemoryStorage:
                 entry["failed"] += 1
         return fb
 
+    def get_preferred_selectors_for_test(self, test_id: str) -> dict[int, dict]:
+        """In-memory equivalent of PostgresStorage.get_preferred_selectors_for_test.
+
+        Returns a mapping of action_index -> {"type": ..., "value": ...} for
+        selectors that have been explicitly marked as passed (and not dominated
+        by failures) for the given test_id.
+        """
+        tid = str(test_id)
+        # Aggregate per (action_index, selector)
+        stats: dict[tuple[int, str, str], dict[str, int]] = {}
+        sigs: dict[tuple[int, str, str], dict] = {}
+        for row in self._annotations:
+            if str(row.get("test_id") or "") != tid:
+                continue
+            try:
+                idx = int(row.get("action_index", 0) or 0)
+            except Exception:
+                continue
+            sel = row.get("selector") or {}
+            if not isinstance(sel, dict):
+                continue
+            sel_type = sel.get("type")
+            sel_value = sel.get("value")
+            if not isinstance(sel_type, str) or not isinstance(sel_value, str):
+                continue
+            key = (idx, sel_type, sel_value)
+            entry = stats.setdefault(key, {"passed": 0, "failed": 0})
+            lab = str(row.get("label") or "").lower()
+            if lab == "passed":
+                entry["passed"] += 1
+            elif lab == "failed":
+                entry["failed"] += 1
+            if key not in sigs:
+                sig = row.get("target_signature")
+                if isinstance(sig, dict):
+                    sigs[key] = sig
+
+        preferred: dict[int, dict] = {}
+        for (idx, sel_type, sel_value), sf in stats.items():
+            p = int(sf.get("passed", 0) or 0)
+            f = int(sf.get("failed", 0) or 0)
+            if p <= 0 or p < f:
+                continue
+            score = (p - f, p)
+            existing = preferred.get(idx)
+            if existing is not None:
+                prev_p = int(existing.get("_passed", 0))
+                prev_f = int(existing.get("_failed", 0))
+                prev_score = (prev_p - prev_f, prev_p)
+                if prev_score >= score:
+                    continue
+            sig = sigs.get((idx, sel_type, sel_value)) or {}
+            attrs = sig.get("attrs") if isinstance(sig, dict) else None
+            tag = sig.get("tag") if isinstance(sig, dict) else None
+            preferred[idx] = {
+                "type": sel_type,
+                "value": sel_value,
+                "attrs": attrs if isinstance(attrs, dict) else None,
+                "tag": tag if isinstance(tag, str) else None,
+                "_passed": p,
+                "_failed": f,
+            }
+
+        # Strip internal counters
+        for k, v in list(preferred.items()):
+            if isinstance(v, dict):
+                v.pop("_passed", None)
+                v.pop("_failed", None)
+                if "attrs" in v and not isinstance(v.get("attrs"), dict):
+                    v.pop("attrs", None)
+                if "tag" in v and not isinstance(v.get("tag"), str):
+                    v.pop("tag", None)
+        return preferred
+
     # ---- Minimal Locator Profiles (in-memory) ----
     def save_locator_profile(
         self, *, domain, tool: str, target_signature: dict, selector: dict
@@ -441,8 +522,99 @@ class Container(containers.DeclarativeContainer):
         return store
 
     model_store = providers.Factory(_build_model_store, settings)
+
+    def _build_llm_ranker(settings_obj: Settings) -> ILlmPageBrainRanker:
+        """Build the LLM ranker implementation for PageBrain Finder.
+
+        - When PAGEBRAIN_RANKER_MODE != 'llm' we always return a noop ranker so
+          that PageBrainFinder will rely solely on the GBM/tabular fallback.
+        - When PAGEBRAIN_RANKER_MODE == 'llm' and a PAGEBRAIN_LLM_MODEL is
+          configured, we construct an HTTP-backed ranker:
+          - OpenAiLlmPageBrainRanker when PAGEBRAIN_LLM_BACKEND='openai'.
+          - QwenLlmPageBrainRanker for local OpenAI-compatible endpoints.
+        """
+        mode = getattr(settings_obj, "PAGEBRAIN_RANKER_MODE", "fallback")
+        if str(mode) != "llm":
+            return NoopLlmPageBrainRanker()
+
+        model_id = getattr(settings_obj, "PAGEBRAIN_LLM_MODEL", None)
+        if not isinstance(model_id, str) or not model_id.strip():
+            # Misconfiguration: LLM mode requested but no model id provided.
+            # Fall back to noop so that the container still builds and the
+            # finder will rely on the deterministic ranker.
+            return NoopLlmPageBrainRanker()
+
+        backend = getattr(settings_obj, "PAGEBRAIN_LLM_BACKEND", "local_http")
+        timeout = getattr(settings_obj, "PAGEBRAIN_LLM_TIMEOUT_SECONDS", 30.0)
+        try:
+            timeout_val = float(timeout)
+        except Exception:
+            timeout_val = 30.0
+
+        # OpenAI backend (e.g. gpt-5-mini via the public API)
+        if str(backend) == "openai":
+            api_key = getattr(settings_obj, "PAGEBRAIN_LLM_API_KEY", None)
+            if not isinstance(api_key, str) or not api_key.strip():
+                # No key available: fail closed to noop to avoid accidental
+                # unauthenticated calls.
+                return NoopLlmPageBrainRanker()
+            base_url = getattr(
+                settings_obj,
+                "PAGEBRAIN_LLM_BASE_URL",
+                "https://api.openai.com",
+            )
+            return OpenAiLlmPageBrainRanker(
+                api_key=api_key.strip(),
+                model=model_id.strip(),
+                base_url=str(base_url),
+                timeout_seconds=timeout_val,
+            )
+
+        # Default: self-hosted OpenAI-compatible HTTP endpoint (e.g. vLLM + Qwen)
+        base_url = getattr(
+            settings_obj,
+            "PAGEBRAIN_LLM_BASE_URL",
+            "http://pagebrain-llm:9000",
+        )
+        return QwenLlmPageBrainRanker(
+            base_url=str(base_url),
+            model=model_id.strip(),
+            timeout_seconds=timeout_val,
+        )
+
+    llm_ranker = providers.Factory(_build_llm_ranker, settings)
+
+    def _build_element_resolver(
+        settings_obj: Settings,
+        browser_obj,
+        model_store_obj: PageBrainModelStore,
+        storage_obj,
+        llm_ranker_obj: ILlmPageBrainRanker,
+    ):
+        """Select the element resolver/finder implementation.
+
+        - When PAGEBRAIN_FINDER_PATH == 'finder_v2', use PageBrainFinder, which
+          owns candidate collection and exposes richer decision metadata.
+        - Otherwise fall back to PageBrainResolver (v1 behavior).
+        """
+        path = getattr(settings_obj, "PAGEBRAIN_FINDER_PATH", "resolver")
+        if str(path) == "finder_v2":
+            return PageBrainFinder(
+                browser=browser_obj,
+                model_store=model_store_obj,
+                storage=storage_obj,
+                llm_ranker=llm_ranker_obj,
+                ranker_mode=str(getattr(settings_obj, "PAGEBRAIN_RANKER_MODE", "fallback")),
+            )
+        return PageBrainResolver(browser=browser_obj, model_store=model_store_obj)
+
     element_resolver = providers.Factory(
-        PageBrainResolver, browser=playwright_browser, model_store=model_store
+        _build_element_resolver,
+        settings,
+        playwright_browser,
+        model_store,
+        storage,
+        llm_ranker,
     )
 
     # Concrete action handlers using shared Playwright browser
