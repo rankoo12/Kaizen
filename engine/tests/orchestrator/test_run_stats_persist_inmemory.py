@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from engine.core.orchestrator.orchestrator import EngineOrchestrator
-from engine.core.config.container import InMemoryStorage
+from engine.core.storage.memory import InMemoryStorage
 
 
 class _FakeExecutor:

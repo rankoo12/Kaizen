@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 
 def test_profiles_lookup_with_domain_inmemory(monkeypatch):
-    from engine.core.config.container import InMemoryStorage
+    from engine.core.storage.memory import InMemoryStorage
 
     st = InMemoryStorage()
     st.save_locator_profile(

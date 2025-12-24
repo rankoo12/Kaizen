@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from engine.core.config.container import InMemoryStorage
+from engine.core.storage.memory import InMemoryStorage
 
 
 def test_inmemory_profile_prefers_more_specific_signature():

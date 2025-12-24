@@ -4,7 +4,7 @@ from engine.core.orchestrator.plan_executor import DeterministicPlanExecutor
 from engine.core.resolving.element_resolver import IElementResolver
 from engine.core.commands.handlers.open import OpenHandler
 from engine.core.commands.handlers.click import ClickHandler
-from engine.core.config.container import InMemoryStorage
+from engine.core.storage.memory import InMemoryStorage
 
 
 class _FakeBrowser:

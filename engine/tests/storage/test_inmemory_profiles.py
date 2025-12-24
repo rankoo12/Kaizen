@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from engine.core.config.container import InMemoryStorage
+from engine.core.storage.memory import InMemoryStorage
 
 
 def test_inmemory_profiles_domain_and_signature_matching():
