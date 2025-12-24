@@ -57,6 +57,7 @@ services:
       KAIZEN_HEALER_DEPTH: "2"
       KAIZEN_HEALER_ENABLED: "true"
       KAIZEN_HEALER_PATH: "deterministic"
+      KAIZEN_PAGEBRAIN_FINDER_PATH: "finder_v2"
       # Use browsers preinstalled in the Playwright base image
       PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
@@ -71,6 +72,19 @@ services:
       KAIZEN_OLLAMA_BASE_URL: "http://host.docker.internal:11434"
       KAIZEN_OLLAMA_MODEL: qwen3:8b
       KAIZEN_LLM_TIMEOUT_SECONDS: 60
+      # PageBrain Finder v2 + LLM ranker
+      KAIZEN_PAGEBRAIN_RANKER_MODE: "llm"
+      # Use the OpenAI GPT-5-mini model by default when LLM backend is 'openai'.
+      KAIZEN_PAGEBRAIN_LLM_BACKEND: "openai"
+      KAIZEN_PAGEBRAIN_LLM_MODEL: "gpt-5-mini"
+      KAIZEN_PAGEBRAIN_LLM_BASE_URL: "https://api.openai.com"
+      KAIZEN_PAGEBRAIN_LLM_TIMEOUT_SECONDS: "60"
+      # API key must be provided via host env or a local .env override file
+      # (never commit real keys).
+      # Provide your API key via environment or a local .env (do not commit).
+      KAIZEN_PAGEBRAIN_LLM_API_KEY: "${KAIZEN_PAGEBRAIN_LLM_API_KEY:-}"
+      # Abort live plans after the first failed step to avoid cascading errors.
+      KAIZEN_EXEC_STOP_ON_STEP_FAILURE: "true"
 
     # Use app image entrypoint (uvicorn from Dockerfile). To see access logs, set log-level to info and drop --no-access-log in Dockerfile or override here.
     command: ["uvicorn", "engine.api.server:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--log-level", "warning", "--no-access-log"]
@@ -114,6 +128,7 @@ services:
       KAIZEN_HEALER_PATH: "deterministic"
       KAIZEN_STORAGE_BACKEND: "postgres"
       KAIZEN_PG_DSN: "postgresql://kaizen:kaizen@postgres:5432/kaizen"
+      KAIZEN_PAGEBRAIN_FINDER_PATH: "finder_v2"
       # LLM disabled by default (enable later to use your local Ollama)
       KAIZEN_LLM_ENABLED: "true"
       KAIZEN_PLANNER_PATH: "llm"
@@ -121,6 +136,16 @@ services:
       KAIZEN_OLLAMA_BASE_URL: "http://host.docker.internal:11434"
       KAIZEN_OLLAMA_MODEL: qwen3:8b
       KAIZEN_LLM_TIMEOUT_SECONDS: 60
+      # PageBrain Finder v2 + LLM ranker
+      KAIZEN_PAGEBRAIN_RANKER_MODE: "llm"
+      KAIZEN_PAGEBRAIN_LLM_BACKEND: "openai"
+      KAIZEN_PAGEBRAIN_LLM_MODEL: "gpt-5-mini"
+      KAIZEN_PAGEBRAIN_LLM_BASE_URL: "https://api.openai.com"
+      KAIZEN_PAGEBRAIN_LLM_TIMEOUT_SECONDS: "60"
+      # API key must be provided via host env or Docker Desktop env injection.
+      # Provide your API key via environment or a local .env (do not commit).
+      KAIZEN_PAGEBRAIN_LLM_API_KEY: "${KAIZEN_PAGEBRAIN_LLM_API_KEY:-}"
+      KAIZEN_EXEC_STOP_ON_STEP_FAILURE: "true"
     command: ["python", "-m", "engine.runner"]
     networks:
       - kaizen
