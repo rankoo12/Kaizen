@@ -39,7 +39,6 @@ class _FakePlanner:
 
 
 class _LLMSettings:
-    EXECUTION_PATH = "orchestrator"
     PLANNER_PATH = "llm"
 
 
@@ -96,7 +95,6 @@ def test_llm_planner_failure_fallback_to_glue():
 
 
 class _GlueSettings:
-    EXECUTION_PATH = "orchestrator"
     PLANNER_PATH = "glue"
 
 

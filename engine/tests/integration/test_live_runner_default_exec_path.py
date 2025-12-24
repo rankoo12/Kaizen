@@ -13,8 +13,7 @@ class FakeExecutor:
 def test_live_runner_defaults_to_orchestrator(monkeypatch):
     c = Container()
 
-    # With default settings, EXECUTION_PATH should be 'orchestrator'
-    # Override the plan executor to avoid real browser and capture calls
+    # Live runner always delegates to orchestrator; capture the plan executor calls
     from dependency_injector import providers
 
     fake_exec = FakeExecutor()

@@ -4,10 +4,6 @@ from engine.core.orchestrator.live_runner import LiveRunner
 from engine.core.orchestrator.types import IOrchestrator
 
 
-class FakeSettings:
-    EXECUTION_PATH = "orchestrator"
-
-
 class FakeOrchestrator(IOrchestrator):
     def __init__(self):
         self.calls = []
@@ -56,7 +52,7 @@ class _FakeLog:
         pass
 
 
-def test_live_runner_delegates_when_toggle_enabled():
+def test_live_runner_delegates_to_orchestrator():
     orchestrator = FakeOrchestrator()
     runner = LiveRunner(
         planner=_FakePlanner(),
@@ -64,7 +60,6 @@ def test_live_runner_delegates_when_toggle_enabled():
         storage=_FakeStorage(),
         log=_FakeLog(),
         orchestrator=orchestrator,
-        settings=FakeSettings(),
     )
 
     class Spec:

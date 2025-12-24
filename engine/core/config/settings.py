@@ -25,11 +25,6 @@ class Settings(BaseSettings):
         5_000_000, description="Max size per JSONL log before rotation (bytes)"
     )
 
-    # Execution toggle for LiveRunner delegation
-    EXECUTION_PATH: Literal["legacy", "orchestrator"] = Field(
-        default="orchestrator", description="Selects live execution path"
-    )
-
     # Planner path: glue (rule-based) or llm (ILLMText)
     PLANNER_PATH: Literal["glue", "llm"] = Field(default="glue")
 

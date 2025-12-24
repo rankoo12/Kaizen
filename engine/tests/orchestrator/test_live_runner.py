@@ -1,37 +1,41 @@
-import os
-import pathlib
-import pytest
+import asyncio
 
-try:
-    import playwright  # noqa: F401
-except Exception:
-    pytest.skip("Playwright not available", allow_module_level=True)
+from engine.core.orchestrator.live_runner import LiveRunner
+from engine.core.orchestrator.types import IOrchestrator
 
 
-def test_live_runner_offline_screenshot(container, tmp_path, monkeypatch):
-    # run inside a temp dir so the screenshot doesn't touch the repo
-    monkeypatch.chdir(tmp_path)
+class FakeOrchestrator(IOrchestrator):
+    def __init__(self):
+        self.calls = []
 
-    class Step:
-        def __init__(self, text):
-            self.text = text
+    def run_snapshot(self, spec, *, html_path=None, html=None, snapshot_path=None) -> str:
+        raise NotImplementedError
+
+    def run_live(self, spec, *, url=None) -> str:
+        self.calls.append((spec, url))
+        return "run-demo"
+
+
+class _FakeLog:
+    def info(self, msg: str, **kv):
+        pass
+
+
+def test_live_runner_delegates_async():
+    orch = FakeOrchestrator()
+    runner = LiveRunner(
+        planner=None,
+        browser=None,
+        storage=None,
+        log=_FakeLog(),
+        orchestrator=orch,
+    )
 
     class Spec:
-        def __init__(self):
-            self.id = "demo-1"
-            self.steps = [Step("noop"), Step("click login")]
+        id = "demo-1"
+        steps = []
 
-    # Force legacy path to preserve historical behavior of this test
-    from dependency_injector import providers
-    class _LegacySettings:
-        EXECUTION_PATH = "legacy"
-        LOGS_DIR = container.settings().LOGS_DIR
-        SNAPSHOTS_DIR = container.settings().SNAPSHOTS_DIR
+    run_id = asyncio.run(runner.run(Spec()))
 
-    container.settings.override(_LegacySettings())
-    runner = container.live_runner()
-    run_id = runner.run_sync(Spec())  # uses offline data: URL by default
-
-    assert run_id.startswith("run-")
-    shot = pathlib.Path("demo-1_final.png")
-    assert shot.exists() and shot.stat().st_size > 0
+    assert run_id == "run-demo"
+    assert len(orch.calls) == 1
